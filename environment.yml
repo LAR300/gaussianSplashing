@@ -1,17 +1,24 @@
-name: gaussian_splatting
+name: gaussian_splattingUW
 channels:
   - pytorch
   - conda-forge
   - defaults
 dependencies:
-  - cudatoolkit=11.6
+  ##- cudatoolkit=12.0 # may not exists on anaconda channels
   - plyfile=0.8.1
-  - python=3.7.13
+  - python=3.8
   - pip=22.3.1
-  - pytorch=1.12.1
-  - torchaudio=0.12.1
-  - torchvision=0.13.1
+  - pytorch=2.0.0
+  - torchaudio=2.0.0
+  - torchvision=0.15.0
   - tqdm
   - pip:
-    - submodules/diff-gaussian-rasterization
-    - submodules/simple-knn
+    - torch==2.1.2+cu121  # Adjust version and CUDA version as needed
+    - torchvision==0.16.2+cu121  # Adjust version and CUDA version as needed
+    - torchaudio==2.1.2+cu121  # Adjust version and CUDA version as needed  
+    - matplotlib
+    - wandb
+pre_build:
+  - pip install --upgrade pip
+  - pip install submodules/diff-gaussian-rasterization
+  - pip install submodules/simple-knn

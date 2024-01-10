@@ -12,7 +12,36 @@
 from argparse import ArgumentParser, Namespace
 import sys
 import os
+import json
 
+class DotDict(dict):
+    """Dictionary class that allows dot notation access to its elements."""
+    def __getattr__(self, attr):
+        if attr in self:
+            return self[attr]
+        raise AttributeError(f"'DotDict' object has no attribute '{attr}'")
+
+    def __setattr__(self, key, value):
+        self[key] = value
+
+def write_namespace_to_file(namespace, filename):
+    # Convert namespace to dictionary
+    namespace_dict = vars(namespace)
+
+    # Write the dictionary to the file using json
+    with open(filename, 'w') as file:
+        json.dump(namespace_dict, file, indent=4)
+
+def read_namespace_from_file(filename):
+    # Read the dictionary from the file
+    with open(filename, 'r') as file:
+        namespace_dict = json.load(file)
+
+    # Convert dictionary to namespace
+    namespace = Namespace(**namespace_dict)
+
+    return namespace
+     
 class GroupParams:
     pass
 
@@ -53,7 +82,7 @@ class ModelParams(ParamGroup):
         self._resolution = -1
         self._white_background = False
         self.data_device = "cuda"
-        self.eval = False
+        self.eval = True # if True, use train and testset, else, only one set
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -89,6 +118,30 @@ class OptimizationParams(ParamGroup):
         self.random_background = False
         super().__init__(parser, "Optimization Parameters")
 
+class WandbParams(ParamGroup):
+    def __init__(self, parser):
+        self.wb_project = "gaussian_splattingUW"
+        self.wb_group = "GroupDebug"
+        self.wb_name = "expDebug"
+        self.wb_dir = os.path.join("./logs/")
+        self.wb_resume = None # "allow", "must", "never", "auto" or None
+        self.wb_id = None
+        self.wb_use_logger=True
+        super().__init__(parser, "Wandb Parameters")
+        
+def add_general_params(parser):
+    # Add General Parameters
+    parser.add_argument('--ip', type=str, default="127.0.0.1")
+    parser.add_argument('--port', type=int, default=6009)
+    parser.add_argument('--debug_from', type=int, default=-1)
+    parser.add_argument('--detect_anomaly', action='store_true', default=False)
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000]) # default=[7_000, 30_000]
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 30_000])
+    parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
+    parser.add_argument("--start_checkpoint", type=str, default = None)
+    return parser
+    
 def get_combined_args(parser : ArgumentParser):
     cmdlne_string = sys.argv[1:]
     cfgfile_string = "Namespace()"
