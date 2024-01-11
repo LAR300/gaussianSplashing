@@ -27,7 +27,8 @@ from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams, WandbParams, DotDict, add_general_params, write_namespace_to_file, read_namespace_from_file
 import wandb
 
-def training(args, dataset, opt, pipe, testing_iterations, saving_model_iterations, checkpoint_iterations, checkpoint, debug_from):
+def training(args, dataset, opt, pipe, testing_iterations, saving_model_iterations, checkpoint_iterations, checkpoint, debug_from, action_groups):
+    start_training = time.time()
     first_iter = 0
     prepare_output(args)
     gaussians = GaussianModel(dataset.sh_degree)
@@ -134,13 +135,31 @@ def training(args, dataset, opt, pipe, testing_iterations, saving_model_iteratio
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
+    
+    end_training = time.time()
+    elapsed_training_time = end_training - start_training
+    minutes, seconds = divmod(elapsed_training_time, 60)
+    
+    prepare_output_end(args, action_groups, minutes, seconds)
+    if wandb.run is not None:
+        wandb.finish(exit_code=0)
+    return minutes, seconds
 
-def prepare_output(cfg_args):    
-            
+def prepare_output(cfg_args):           
     # Set up output folder
     print("Output folder: {}".format(cfg_args.model_path))
     os.makedirs(cfg_args.model_path, exist_ok = True)
-    write_namespace_to_file(cfg_args, os.path.join(cfg_args.model_path,"cfg_args.json"))
+    
+def prepare_output_end(cfg_args, action_groups, minutes, seconds):
+    # Organize arguments into a dictionary by groups
+    namespace_dict = {}
+    for group in action_groups:
+        group_dict = {action.dest: getattr(cfg_args, action.dest, None) for action in group._group_actions}
+        namespace_dict[group.title] = group_dict
+    namespace_dict["elapsed_training_time_MS"] = {"minutes": minutes, "seconds": seconds}
+    write_namespace_to_file(namespace_dict, os.path.join(cfg_args.model_path,"cfg_args.json"))
+    if wandb.run is not None:
+        wandb.config.update(namespace_dict)
 
 def training_report(iteration, Ll1, loss, l1_loss,
                     Ll2, l2_loss, Psnr,
@@ -194,7 +213,8 @@ def training_report(iteration, Ll1, loss, l1_loss,
         if wandb.run is not None:
             wandb.run.log(data={"scene/opacity_histogram": wandb.Histogram(scene.gaussians.get_opacity.detach().cpu()), 'total_points': scene.gaussians.get_xyz.shape[0]},step= iteration)
         torch.cuda.empty_cache()
-def create_logger(cfg):
+        
+def create_wb_logger(cfg):
     dot_dic=DotDict(vars(cfg))
     wandb.login()
     
@@ -233,7 +253,7 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     if args.wb_use_logger:
-        create_logger(cfg=args)
+        create_wb_logger(cfg=args)
     print("Optimizing " + args.model_path)
 
     # Initialize system state (RNG)
@@ -242,14 +262,14 @@ if __name__ == "__main__":
     # Start GUI server, configure and run training
     #network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    start_training = time.time()
-    training(args, lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
-    end_training = time.time()
-    elapsed_training_time = end_training - start_training
-    minutes, seconds = divmod(elapsed_training_time, 60)
-    wandb.config.update({"elapsed_training_time_MS": {"minutes": minutes, "seconds": seconds}})
+    
+    training_miutes, training_seconds = training(args, lp.extract(args), op.extract(args), pp.extract(args), 
+                                                 args.test_iterations, args.save_iterations, args.checkpoint_iterations, 
+                                                 args.start_checkpoint, args.debug_from,
+                                                 parser._action_groups)
+    
+    
     # All done
     print("Training complete.")
-    print(f"Training execution time: {int(minutes)} minutes {seconds:.2f} seconds")
-    wandb.finish(exit_code=0)
+    print(f"Training execution time: {int(training_miutes)} minutes {training_seconds:.2f} seconds")
     exit(code=0)
