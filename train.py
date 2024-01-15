@@ -216,31 +216,49 @@ def training_report(iteration, Ll1, loss, l1_loss,
         
 def create_wb_logger(cfg):
     dot_dic=DotDict(vars(cfg))
-    wandb.login()
-    
-    if not cfg.wb_resume:
-        folder_path = os.path.join("./output/",  cfg.wb_group)
-        files = os.listdir(folder_path)
-        cfg.wb_name = os.path.splitext(os.path.normpath(cfg.source_path).split(os.path.sep)[-1])[0] # base_name_without_extension
-        matching_files = [file for file in files if file.startswith(f"{cfg.wb_name}_")]
-        numbers = [int(file.split("_")[1]) for file in matching_files]
-        if numbers:
-            next_number = max(numbers) + 1
-        else:
-            next_number = 0  # If no files found, start with 0
-        next_number_padded = str(next_number).zfill(5)
-        next_filename = f"{cfg.wb_name}_{next_number_padded}"
+
+    folder_path = os.path.join("./output/",  cfg.wb_group)
+    files = os.listdir(folder_path)
+    cfg.wb_name = os.path.splitext(os.path.normpath(cfg.source_path).split(os.path.sep)[-1])[0] # base_name_without_extension
+    matching_files = [file for file in files if file.startswith(f"{cfg.wb_name}_")]
+    numbers = [int(file.split("_")[-1]) for file in matching_files]
+    if numbers:
+        next_number = max(numbers) + 1
+    else:
+        next_number = 0  # If no files found, start with 0
+    next_number_padded = str(next_number).zfill(5)
+    next_filename = f"{cfg.wb_name}_iter{cfg.iterations}_{next_number_padded}"
+    new_run=False
+    if not cfg.wb_resume in ["allow", "must", "auto"]:
+        # new run
         cfg.model_path = os.path.join(folder_path ,next_filename)
+        new_run=True
         
-    run = wandb.init(
-        project=dot_dic.wb_project,
-        group=dot_dic.wb_group,
-        name=next_filename,
-        dir=dot_dic.wb_dir,
-        resume=dot_dic.wb_resume, 
-        id = dot_dic.wb_id,  
-        config=dot_dic,
-)
+    if cfg.wb_use_logger:
+        wandb.login()
+        if new_run:
+             # new run
+            run = wandb.init(
+                project=dot_dic.wb_project,
+                group=dot_dic.wb_group,
+                name=next_filename,
+                dir=dot_dic.wb_dir,
+                resume=dot_dic.wb_resume, 
+                id = dot_dic.wb_id,  
+                config=dot_dic,
+            )
+        else:
+            run = wandb.init(
+                project=dot_dic.wb_project,
+                group=dot_dic.wb_group,
+                name=cfg.wb_name,
+                id= cfg.wb_id,
+                resume=cfg.wb_resume,
+                dir=dot_dic.wb_dir, 
+                config=dot_dic,
+            )
+        
+        
     
 if __name__ == "__main__":
     # Set up command line argument parser
@@ -252,8 +270,7 @@ if __name__ == "__main__":
     parser = add_general_params(parser)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
-    if args.wb_use_logger:
-        create_wb_logger(cfg=args)
+    create_wb_logger(cfg=args)
     print("Optimizing " + args.model_path)
 
     # Initialize system state (RNG)

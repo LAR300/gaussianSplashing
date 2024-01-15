@@ -99,7 +99,7 @@ class PipelineParams(ParamGroup):
 
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):
-        self.iterations = 2000
+        self.iterations = 75_000
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016
         self.position_lr_delay_mult = 0.01
@@ -120,13 +120,13 @@ class OptimizationParams(ParamGroup):
 
 class WandbParams(ParamGroup):
     def __init__(self, parser):
+        self.wb_use_logger=True
         self.wb_project = "gaussian_splattingUW"
         self.wb_group = "GroupDebug"
         self.wb_name = "expDebug"
         self.wb_dir = os.path.join("./logs/")
         self.wb_resume = None # "allow", "must", "never", "auto" or None
         self.wb_id = None
-        self.wb_use_logger=True
         super().__init__(parser, "Wandb Parameters")
         
 def add_general_params(parser):
@@ -136,8 +136,8 @@ def add_general_params(parser):
     group_general_args.add_argument('--port', type=int, default=6009)
     group_general_args.add_argument('--debug_from', type=int, default=-1)
     group_general_args.add_argument('--detect_anomaly', action='store_true', default=False)
-    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000, 50_000, 75_000]) # default=[7_000, 30_000]
-    group_general_args.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 75_000])
+    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000, 50_000, 60_000, 75_000]) # default=[7_000, 30_000]
+    group_general_args.add_argument("--save_iterations", nargs="+", type=int, default=[75_000])
     group_general_args.add_argument("--quiet", action="store_true")
     group_general_args.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     group_general_args.add_argument("--start_checkpoint", type=str, default = None)
