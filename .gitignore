@@ -2,9 +2,11 @@
 .vscode
 data
 output
+wandb
 logs
 build
 diff_rasterization/diff_rast.egg-info
 diff_rasterization/dist
+clustering/pcds
 tensorboard_3d
 screenshots

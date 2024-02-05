@@ -14,6 +14,31 @@ import sys
 import os
 import json
 
+class NestedDict:
+        def __init__(self, data):
+            self._data = data
+
+        def __getattr__(self, name):
+            if name in self._data:
+                if isinstance(self._data[name], dict):
+                    return NestedDict(self._data[name])
+                else:
+                    return self._data[name]
+            else:
+                raise AttributeError(f"'NestedDict' object has no attribute '{name}'")
+            
+        def __setattr__(self, name, value):
+            if name == '_data':
+                super().__setattr__(name, value)
+            else:
+                self._data[name] = value
+                
+        def __getitem__(self, key):
+            return self._data[key]
+
+        def __setitem__(self, key, value):
+            self._data[key] = value
+            
 class DotDict(dict):
     """Dictionary class that allows dot notation access to its elements."""
     def __getattr__(self, attr):
@@ -24,13 +49,11 @@ class DotDict(dict):
     def __setattr__(self, key, value):
         self[key] = value
 
-def write_namespace_to_file(namespace_dict, filename):
-    # Convert namespace to dictionary
+def write_dictionary_to_file(namespace_dict, filename):
     #namespace_dict = vars(namespace)
-
     # Write the dictionary to the file using json
     with open(filename, 'w') as file:
-        json.dump(namespace_dict, file, indent=4)
+        json.dump(dict(namespace_dict._data), file, indent=4)
 
 def read_namespace_from_file(filename):
     # Read the dictionary from the file
@@ -110,8 +133,8 @@ class OptimizationParams(ParamGroup):
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.densification_interval = 100
-        self.opacity_reset_interval = 3000
+        self.densification_interval = 100 # try learning rate
+        self.opacity_reset_interval = 3000 # why restart opacity?
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
@@ -120,7 +143,7 @@ class OptimizationParams(ParamGroup):
 
 class WandbParams(ParamGroup):
     def __init__(self, parser):
-        self.wb_use_logger=True
+        self.wb_use_logger=False
         self.wb_project = "gaussian_splattingUW"
         self.wb_group = "GroupDebug"
         self.wb_name = "expDebug"
@@ -136,7 +159,7 @@ def add_general_params(parser):
     group_general_args.add_argument('--port', type=int, default=6009)
     group_general_args.add_argument('--debug_from', type=int, default=-1)
     group_general_args.add_argument('--detect_anomaly', action='store_true', default=False)
-    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000, 50_000, 60_000, 75_000]) # default=[7_000, 30_000]
+    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 1000, 3000, 4000, 7000, 10_000, 150_00 ,20_000, 30_000, 50_000]) # default=[7_000, 30_000]
     group_general_args.add_argument("--save_iterations", nargs="+", type=int, default=[75_000])
     group_general_args.add_argument("--quiet", action="store_true")
     group_general_args.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])

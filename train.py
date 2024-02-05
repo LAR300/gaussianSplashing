@@ -8,7 +8,6 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
-
 import os
 import torch
 import torchvision
@@ -24,13 +23,42 @@ import time
 from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
-from arguments import ModelParams, PipelineParams, OptimizationParams, WandbParams, DotDict, add_general_params, write_namespace_to_file, read_namespace_from_file
+from arguments import ModelParams, PipelineParams, OptimizationParams, WandbParams, NestedDict, add_general_params, write_dictionary_to_file
 import wandb
 
-def training(args, dataset, opt, pipe, testing_iterations, saving_model_iterations, checkpoint_iterations, checkpoint, debug_from, action_groups):
+def train_sweep(namespace_dict=None, sweep_train_flag=True):
+    if sweep_train_flag:
+        run_sweep = wandb.init(
+                project="gaussian_splattingUW",
+                group="GroupSweepDebugUW",
+                config=namespace_dict,
+            )
+        namespace_dict = run_sweep.config
+        
+    cfg_dot_dic = NestedDict(namespace_dict)
+    if not sweep_train_flag:
+        print("Optimizing " + cfg_dot_dic.LoadingParameters.model_path)
+    else:
+        print("Sweeping... ")
+
+    # Initialize system state (RNG)
+    safe_state(cfg_dot_dic.GeneralParameters.quiet)
+
+    # Start GUI server, configure and run training
+    #network_gui.init(args.ip, args.port)
+    torch.autograd.set_detect_anomaly(cfg_dot_dic.GeneralParameters.detect_anomaly)
+    
+    training_miutes, training_seconds = training(cfg_dot_dic ,cfg_dot_dic.LoadingParameters, cfg_dot_dic.OptimizationParameters, cfg_dot_dic.PipelineParameters, 
+                                                 sweep_train_flag=sweep_train_flag)
+    # All done
+    print("Training complete.")
+    print(f"Training execution time: {int(training_miutes)} minutes {training_seconds:.2f} seconds")
+    
+def training(cfg_dot_dic, dataset, opt, pipe, checkpoint=None, sweep_train_flag=False):
+    
     start_training = time.time()
     first_iter = 0
-    prepare_output(args)
+    prepare_output(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
@@ -78,13 +106,13 @@ def training(args, dataset, opt, pipe, testing_iterations, saving_model_iteratio
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
 
         # Render
-        if (iteration - 1) == debug_from:
+        if (iteration - 1) == cfg_dot_dic.GeneralParameters.debug_from:
             pipe.debug = True
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
-        image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        image, depth_map, alpha_map, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_alpha"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
@@ -106,13 +134,12 @@ def training(args, dataset, opt, pipe, testing_iterations, saving_model_iteratio
                 progress_bar.close()
 
             # Log and save
-            with torch.no_grad():
-                training_report(iteration, Ll1, loss, l1_loss,
-                                Ll2, l2_loss, Psnr,
-                                iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
-                if (iteration in saving_model_iterations):
-                    print("\n[ITER {}] Saving Gaussians".format(iteration))
-                    scene.save(iteration)
+            training_report(iteration, Ll1, loss, l1_loss,
+                            Ll2, l2_loss, Psnr,
+                            iter_start.elapsed_time(iter_end), cfg_dot_dic.GeneralParameters.test_iterations, scene, render, (pipe, background))
+            if (iteration in cfg_dot_dic.GeneralParameters.save_iterations):
+                print("\n[ITER {}] Saving Gaussians".format(iteration))
+                scene.save(iteration)
 
             # Densification
             if iteration < opt.densify_until_iter:
@@ -132,7 +159,7 @@ def training(args, dataset, opt, pipe, testing_iterations, saving_model_iteratio
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
 
-            if (iteration in checkpoint_iterations):
+            if (iteration in cfg_dot_dic.GeneralParameters.checkpoint_iterations and not sweep_train_flag):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
     
@@ -140,26 +167,22 @@ def training(args, dataset, opt, pipe, testing_iterations, saving_model_iteratio
     elapsed_training_time = end_training - start_training
     minutes, seconds = divmod(elapsed_training_time, 60)
     
-    prepare_output_end(args, action_groups, minutes, seconds)
+    prepare_output_end(cfg_dot_dic, minutes, seconds, sweep_train_flag)
     if wandb.run is not None:
         wandb.finish(exit_code=0)
     return minutes, seconds
 
-def prepare_output(cfg_args):           
+def prepare_output(dataset):           
     # Set up output folder
-    print("Output folder: {}".format(cfg_args.model_path))
-    os.makedirs(cfg_args.model_path, exist_ok = True)
+    print("Output folder: {}".format(dataset.model_path))
+    os.makedirs(dataset.model_path, exist_ok = True)
     
-def prepare_output_end(cfg_args, action_groups, minutes, seconds):
-    # Organize arguments into a dictionary by groups
-    namespace_dict = {}
-    for group in action_groups:
-        group_dict = {action.dest: getattr(cfg_args, action.dest, None) for action in group._group_actions}
-        namespace_dict[group.title] = group_dict
-    namespace_dict["elapsed_training_time_MS"] = {"minutes": minutes, "seconds": seconds}
-    write_namespace_to_file(namespace_dict, os.path.join(cfg_args.model_path,"cfg_args.json"))
+def prepare_output_end(cfg_dot_dic, minutes, seconds, sweep_train_flag=False):
+    cfg_dot_dic['TrainingTime'] = {"minutes": minutes, "seconds": seconds}
+    if not sweep_train_flag:
+        write_dictionary_to_file(cfg_dot_dic, os.path.join(cfg_dot_dic.LoadingParameters.model_path,"cfg_args.json"))
     if wandb.run is not None:
-        wandb.config.update(namespace_dict)
+        wandb.config.update({"TrainingTime": {"minutes": minutes, "seconds": seconds}})
 
 def training_report(iteration, Ll1, loss, l1_loss,
                     Ll2, l2_loss, Psnr,
@@ -182,7 +205,10 @@ def training_report(iteration, Ll1, loss, l1_loss,
                 l2_test = 0.0
                 psnr_test = 0.0
                 for idx, viewpoint in enumerate(config['cameras']):
-                    image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
+                    render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs)
+                    image = torch.clamp(render_pkg["render"], 0.0, 1.0)
+                    depth_map = torch.clamp((render_pkg["rendered_depth"] - render_pkg["rendered_depth"].min()) / (render_pkg["rendered_depth"].max() - render_pkg["rendered_depth"].min()), 0.0, 1.0)
+                    alpha_map = torch.clamp((render_pkg["rendered_alpha"] - render_pkg["rendered_alpha"].min()) / (render_pkg["rendered_alpha"].max() - render_pkg["rendered_alpha"].min()), 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     l1_curr = l1_loss(image, gt_image).mean().double()
                     l1_test += l1_curr
@@ -199,8 +225,12 @@ def training_report(iteration, Ll1, loss, l1_loss,
                             return np.transpose(nm, (1, 2, 0)) # C*H*W -> H*W*C 
                         round_num = 5
                         wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered": wandb.Image(torch2np(image[None]), caption=f'l1 = {round(float(l1_curr),round_num)},  psnr = {round(float(psnr_curr),round_num)}')}, step=iteration)
+                        
+                        wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_depth": wandb.Image(torch2np(depth_map[None]), caption=f'depth_map')}, step=iteration)
+                        wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_alpha": wandb.Image(torch2np(alpha_map[None]), caption=f'alpha_map')}, step=iteration)
                         if iteration == testing_iterations[0]:
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/ground-truth": wandb.Image(torch2np(gt_image[None]), caption=f'gt')}, step=iteration)
+                            
                     
                 psnr_test /= len(config['cameras'])
                 l1_test /= len(config['cameras'])          
@@ -214,49 +244,70 @@ def training_report(iteration, Ll1, loss, l1_loss,
             wandb.run.log(data={"scene/opacity_histogram": wandb.Histogram(scene.gaussians.get_opacity.detach().cpu()), 'total_points': scene.gaussians.get_xyz.shape[0]},step= iteration)
         torch.cuda.empty_cache()
         
-def create_wb_logger(cfg):
-    dot_dic=DotDict(vars(cfg))
+def organize_logger(cfg_args, action_groups):
+    namespace_dict = {}
+    for group in action_groups:
+        group_dict = {action.dest: getattr(cfg_args, action.dest, None) for action in group._group_actions}
+        namespace_dict[group.title.replace(' ', '')] = group_dict
+    
+    #namespace_dict["TrainingTime"] = {"minutes": 0, "seconds": 0} # updated when training is finished
+    
+    #cfg_dot_dic = NestedDict(namespace_dict)
 
-    folder_path = os.path.join("./output/",  cfg.wb_group)
+    wb_resume, wb_use_logger, wb_project, wb_group, wb_dir, wb_id, next_filename, new_run = logger_aux(namespace_dict)
+        
+    if wb_use_logger:
+        wandb.login()
+        if new_run:
+             # new run
+            run = wandb.init(
+                project=wb_project,
+                group=wb_group,
+                name=next_filename,
+                dir=wb_dir,
+                resume=wb_resume, 
+                id =wb_id,  
+                config=namespace_dict,
+            )
+        else:
+            run = wandb.init(
+                project=wb_project,
+                group=wb_group,
+                name=namespace_dict["WandbParameters"]["wb_name"],
+                id= wb_id,
+                resume=wb_resume,
+                dir=wb_dir, 
+                config=namespace_dict,
+            )
+    return wandb.config if wb_use_logger else namespace_dict
+
+def logger_aux(namespace_dict):
+    wb_resume = namespace_dict["WandbParameters"]["wb_resume"]
+    wb_use_logger = namespace_dict["WandbParameters"]["wb_use_logger"]
+    wb_project = namespace_dict["WandbParameters"]["wb_project"]
+    wb_group = namespace_dict["WandbParameters"]["wb_group"]
+    wb_dir = namespace_dict["WandbParameters"]["wb_dir"]
+    wb_id = namespace_dict["WandbParameters"]["wb_id"]
+    source_path = namespace_dict["LoadingParameters"]["source_path"]
+    iteration = namespace_dict["OptimizationParameters"]["iterations"]
+    folder_path = os.path.join("./output/",  namespace_dict["WandbParameters"]["wb_group"])
     files = os.listdir(folder_path)
-    cfg.wb_name = os.path.splitext(os.path.normpath(cfg.source_path).split(os.path.sep)[-1])[0] # base_name_without_extension
-    matching_files = [file for file in files if file.startswith(f"{cfg.wb_name}_")]
+    namespace_dict["WandbParameters"]["wb_name"] = os.path.splitext(os.path.normpath(source_path).split(os.path.sep)[-1])[0] # base_name_without_extension
+    wb_name = namespace_dict["WandbParameters"]["wb_name"]
+    matching_files = [file for file in files if file.startswith(f"{wb_name}_")]
     numbers = [int(file.split("_")[-1]) for file in matching_files]
     if numbers:
         next_number = max(numbers) + 1
     else:
         next_number = 0  # If no files found, start with 0
     next_number_padded = str(next_number).zfill(5)
-    next_filename = f"{cfg.wb_name}_iter{cfg.iterations}_{next_number_padded}"
+    next_filename = f"{wb_name}_iter{iteration}_{next_number_padded}"
     new_run=False
-    if not cfg.wb_resume in ["allow", "must", "auto"]:
+    if not wb_resume in ["allow", "must", "auto"]:
         # new run
-        cfg.model_path = os.path.join(folder_path ,next_filename)
+        namespace_dict["LoadingParameters"]["model_path"] = os.path.join(folder_path ,next_filename)
         new_run=True
-        
-    if cfg.wb_use_logger:
-        wandb.login()
-        if new_run:
-             # new run
-            run = wandb.init(
-                project=dot_dic.wb_project,
-                group=dot_dic.wb_group,
-                name=next_filename,
-                dir=dot_dic.wb_dir,
-                resume=dot_dic.wb_resume, 
-                id = dot_dic.wb_id,  
-                config=dot_dic,
-            )
-        else:
-            run = wandb.init(
-                project=dot_dic.wb_project,
-                group=dot_dic.wb_group,
-                name=cfg.wb_name,
-                id= cfg.wb_id,
-                resume=cfg.wb_resume,
-                dir=dot_dic.wb_dir, 
-                config=dot_dic,
-            )
+    return wb_resume,wb_use_logger,wb_project,wb_group,wb_dir,wb_id,next_filename,new_run
         
         
     
@@ -269,24 +320,14 @@ if __name__ == "__main__":
     wbp = WandbParams(parser)
     parser = add_general_params(parser)
     args = parser.parse_args(sys.argv[1:])
-    args.save_iterations.append(args.iterations)
-    create_wb_logger(cfg=args)
-    print("Optimizing " + args.model_path)
+    if args.iterations not in args.test_iterations:
+        args.test_iterations.append(args.iterations)
+    if args.iterations not in args.save_iterations:
+        args.save_iterations.append(args.iterations)
+    namespace_dict = organize_logger(cfg_args=args, action_groups=parser._action_groups)
 
-    # Initialize system state (RNG)
-    safe_state(args.quiet)
-
-    # Start GUI server, configure and run training
-    #network_gui.init(args.ip, args.port)
-    torch.autograd.set_detect_anomaly(args.detect_anomaly)
     
-    training_miutes, training_seconds = training(args, lp.extract(args), op.extract(args), pp.extract(args), 
-                                                 args.test_iterations, args.save_iterations, args.checkpoint_iterations, 
-                                                 args.start_checkpoint, args.debug_from,
-                                                 parser._action_groups)
+    train_sweep(namespace_dict, sweep_train_flag=False)
     
     
-    # All done
-    print("Training complete.")
-    print(f"Training execution time: {int(training_miutes)} minutes {training_seconds:.2f} seconds")
     exit(code=0)

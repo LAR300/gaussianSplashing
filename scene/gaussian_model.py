@@ -120,18 +120,59 @@ class GaussianModel:
     def oneupSHdegree(self):
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
+    def cluster_aux(self, orig_colors):
+        # cluster the points and colors
+        pcds_dir = os.path.join("clustering","pcds")
+        A = orig_colors
+        print(A.shape)
+        B = np.reshape(np.load(os.path.join(pcds_dir,"dpmeansMiniBatch", "train_preds_40247.npy")), (-1, 1))   
+        print(B.shape)
+        clusters = np.load(os.path.join(pcds_dir,"dpmeansMiniBatch", "train_clusters_40247.npy")) 
+        print(clusters.shape)
+        C = np.concatenate((A, B), axis=1)
+        unique_values = np.unique(C[:, -1])
 
+        new_colors = np.zeros((len(clusters), A.shape[1]))
+
+        for i, value in enumerate(unique_values):
+            # Select rows where the last column is equal to the current unique value
+            group = A[B.flatten() == value]
+            average_point = np.mean(group, axis=0)
+            new_colors[i, :] = average_point
+        return clusters, new_colors
+    
     def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float):
+        #  Create the model from a point cloud
+        # pcd : BasicPointCloud
+        # pcd.points : numpy array of shape (N, 3)
+        # pcd.colors : numpy array of shape (N, 3)
+        # pcd.normals : numpy array of shape (N, 3), optional
+        
+        random_points_initilizer = False
+        cluster_points_initilizer = True
+        if random_points_initilizer:
+            N = 20_000 # pcd.points.shape[0]  
+            lower_bound = -250
+            upper_bound = 250
+            random_array = np.random.uniform(lower_bound, upper_bound, size=(N, 3))
+            points = random_array
+            colors = np.random.uniform(0, 1, size=(N, 3))
+        elif cluster_points_initilizer:  
+            points, colors = self.cluster_aux(pcd.colors)
+            #colors = pcd.colors
+        else:
+            points = pcd.points
+            colors = pcd.colors
         self.spatial_lr_scale = spatial_lr_scale
-        fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
-        fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
+        fused_point_cloud = torch.tensor(np.asarray(points)).float().cuda()
+        fused_color = RGB2SH(torch.tensor(np.asarray(colors)).float().cuda())
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
         features[:, :3, 0 ] = fused_color
         features[:, 3:, 1:] = 0.0
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
 
-        dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001)
+        dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(points)).float().cuda()), 0.0000001)
         scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
         rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
