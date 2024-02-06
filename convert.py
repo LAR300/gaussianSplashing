@@ -13,6 +13,7 @@ import os
 import logging
 from argparse import ArgumentParser
 import shutil
+from PIL import Image
 
 # This Python script is based on the shell converter script provided in the MipNerF 360 repository.
 parser = ArgumentParser("Colmap converter")
@@ -22,6 +23,7 @@ parser.add_argument("--source_path", "-s", required=True, type=str)
 parser.add_argument("--camera", default="OPENCV", type=str)
 parser.add_argument("--colmap_executable", default="", type=str)
 parser.add_argument("--resize", action="store_true")
+parser.add_argument("--magick_flage", action='store_false')
 parser.add_argument("--magick_executable", default="", type=str)
 args = parser.parse_args()
 colmap_command = '"{}"'.format(args.colmap_executable) if len(args.colmap_executable) > 0 else "colmap"
@@ -87,6 +89,29 @@ for file in files:
     destination_file = os.path.join(args.source_path, "sparse", "0", file)
     shutil.move(source_file, destination_file)
 
+    
+def resize_and_save(destination_file, factor, magick_flag=False, magick_command="magick"):    
+    def convert_to_percentage(value):
+        if value < 1:
+            if value == 0.125:
+                return 12.5
+            else:
+                return int(value * 100)
+        else:
+            return value
+    if magick_flag:
+        exit_code = os.system(magick_command + f" mogrify -resize {convert_to_percentage(factor)}% " + destination_file)       
+        if exit_code != 0:
+            logging.error(f"50% resize failed with code {exit_code}. Exiting.")
+            exit(exit_code)
+    else: 
+        try:
+            image = Image.open(destination_file)
+            resized_image = image.resize((int(image.width * factor), int(image.height * factor)))
+            resized_image.save(destination_file)
+        except Exception as e:
+            logging.error(f"Failed to resize image: {e}")
+
 if(args.resize):
     print("Copying and resizing...")
 
@@ -102,23 +127,14 @@ if(args.resize):
 
         destination_file = os.path.join(args.source_path, "images_2", file)
         shutil.copy2(source_file, destination_file)
-        exit_code = os.system(magick_command + " mogrify -resize 50% " + destination_file)
-        if exit_code != 0:
-            logging.error(f"50% resize failed with code {exit_code}. Exiting.")
-            exit(exit_code)
+        resize_and_save(destination_file, factor=0.5, magick_flag=args.magick_flage, magick_command=magick_command)
 
         destination_file = os.path.join(args.source_path, "images_4", file)
         shutil.copy2(source_file, destination_file)
-        exit_code = os.system(magick_command + " mogrify -resize 25% " + destination_file)
-        if exit_code != 0:
-            logging.error(f"25% resize failed with code {exit_code}. Exiting.")
-            exit(exit_code)
+        resize_and_save(destination_file, factor=0.25, magick_flag=args.magick_flage, magick_command=magick_command)
 
         destination_file = os.path.join(args.source_path, "images_8", file)
         shutil.copy2(source_file, destination_file)
-        exit_code = os.system(magick_command + " mogrify -resize 12.5% " + destination_file)
-        if exit_code != 0:
-            logging.error(f"12.5% resize failed with code {exit_code}. Exiting.")
-            exit(exit_code)
+        resize_and_save(destination_file, factor=0.125, magick_flag=args.magick_flage, magick_command=magick_command)
 
 print("Done.")

@@ -1,7 +1,0 @@
-name: gaussian_check
-channels:
-  - defaults
-  - conda-forge
-  - bioconda
-  - nvidia
-prefix: /home/nirmu/.conda/envs/gaussian_check

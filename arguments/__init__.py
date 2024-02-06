@@ -102,6 +102,7 @@ class ModelParams(ParamGroup):
         self._source_path = ""
         self._model_path = ""
         self._images = "images"
+        self.initialization_points_option = "random" # "cluster", "pointcloud", "random"
         self._resolution = -1
         self._white_background = False
         self.data_device = "cuda"
