@@ -291,9 +291,14 @@ def logger_aux(namespace_dict):
     source_path = namespace_dict["LoadingParameters"]["source_path"]
     iteration = namespace_dict["OptimizationParameters"]["iterations"]
     folder_path = os.path.join("./output/",  namespace_dict["WandbParameters"]["wb_group"])
-    files = os.listdir(folder_path)
     namespace_dict["WandbParameters"]["wb_name"] = os.path.splitext(os.path.normpath(source_path).split(os.path.sep)[-1])[0] # base_name_without_extension
     wb_name = namespace_dict["WandbParameters"]["wb_name"]
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+        print(f"Directory '{folder_path}' created successfully.")
+    else:
+        print(f"Directory '{folder_path}' already exists.")
+    files = os.listdir(folder_path)
     matching_files = [file for file in files if file.startswith(f"{wb_name}_")]
     numbers = [int(file.split("_")[-1]) for file in matching_files]
     if numbers:

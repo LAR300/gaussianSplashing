@@ -10,3 +10,4 @@ diff_rasterization/dist
 clustering/pcds
 tensorboard_3d
 screenshots
+sweeps/sweep_config.yaml
