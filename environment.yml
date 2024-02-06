@@ -17,6 +17,8 @@ dependencies:
     - wandb
     - timm
     - scikit-learn
+    - pdc-dp-means
+    - opencv-python
 # post_build:
 #   - pip install --upgrade pip
 #   - pip install submodules/diff-gaussian-rasterization_depth
