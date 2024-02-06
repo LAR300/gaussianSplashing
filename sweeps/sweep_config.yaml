@@ -1,0 +1,120 @@
+name: SweepInit
+program: train.py
+method: grid
+metric:
+  goal: maximize
+  name: test/loss_viewpoint - psnr
+parameters:
+  LoadingParameters:
+    parameters:
+      sh_degree:
+        values: [3]
+      source_path:
+        values: [data/tandt/train]
+      model_path:
+        values: [./output/GroupSweepDebug/train]
+      images:
+        values: [images]
+      initialization_points_option: # "cluster", "pointcloud", "random"
+        values: [random]
+      resolution:
+        values: [-1]
+      white_background:
+        values: [false]
+      data_device:
+        values: [cuda]
+      eval:
+        values: [true]
+  OptimizationParameters:
+    parameters:
+      iterations:
+        values: [30_000]
+      position_lr_init:
+        values: [0.00016]
+      position_lr_final:
+        values: [1.6e-06]
+      position_lr_delay_mult:
+        values: [0.005, 0.01, 0.02]
+      position_lr_max_steps:
+        values: [30000]
+      feature_lr:
+        values: [0.0025]
+      opacity_lr:
+        values: [0.05]
+      scaling_lr:
+        values: [0.005]
+      rotation_lr:
+        values: [0.001]
+      percent_dense:
+        values: [0.01]
+      lambda_dssim:
+        values: [0.15, 0.2, 0.25]
+      densification_interval:
+        values: [100, 500]
+      opacity_reset_interval:
+        values: [2000, 3000, 4000]
+      densify_from_iter:
+        values: [500]
+      densify_until_iter:
+        values: [15000]
+      densify_grad_threshold:
+        values: [0.0002]
+      random_background:
+        values: [false]
+  PipelineParameters:
+    parameters:
+      convert_SHs_python:
+        values: [false]
+      compute_cov3D_python:
+        values: [false]
+      debug:
+        values: [false]
+  WandbParameters:
+    parameters:
+      wb_use_logger:
+        values: [true]
+      wb_project:
+        values: [gaussian_splattingUW]
+      wb_group:
+        values: [GroupSweepDebug]
+      wb_name:
+        values: [train_sweep]
+      wb_dir:
+        values: [./logs/]
+      wb_resume:
+        values: [null]
+      wb_id:
+        values: [null]
+  GeneralParameters:
+    parameters:
+      ip:
+        value: 127.0.0.1
+      port:
+        values: [6009]
+      debug_from:
+        values: [-1]
+      detect_anomaly:
+        values: [false]
+      quiet:
+        values: [false]
+      start_checkpoint:
+        values: [null]
+      test_iterations:  
+        values: [[  
+          1,
+          15000,
+          30000,
+          50000
+        ]]  
+      save_iterations:  
+        values: [[  
+        ]]
+      checkpoint_iterations:
+        values: [[
+        ]]  
+  TrainingTime:
+    parameters:
+      minutes:
+        value: 0
+      seconds: 
+        value: 0

@@ -8,7 +8,7 @@ def read_yaml(file_path):
         nested_dict = yaml.safe_load(yaml_file)
     return nested_dict
 
-sweep_dir = os.path.join('output', 'sweeps')
+sweep_dir = os.path.join('sweeps')
 if __name__ == "__main__":
     yaml_file_path = os.path.join(sweep_dir, 'sweep_config.yaml')
     nested_dict = read_yaml(yaml_file_path)
