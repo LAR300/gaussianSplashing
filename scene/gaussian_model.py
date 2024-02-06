@@ -149,7 +149,7 @@ class GaussianModel:
         # pcd.normals : numpy array of shape (N, 3), optional
         
         random_points_initilizer = False
-        cluster_points_initilizer = True
+        cluster_points_initilizer = False
         if random_points_initilizer:
             N = 20_000 # pcd.points.shape[0]  
             lower_bound = -250

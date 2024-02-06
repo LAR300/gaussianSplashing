@@ -3,22 +3,19 @@ channels:
   - pytorch
   - conda-forge
   - defaults
+  - nvidia
 dependencies:
   - plyfile=0.8.1
   - python=3.8
-  - pip=22.3.1
-  - pytorch=2.0.0
-  - torchaudio=2.0.0
-  - torchvision=0.15.0
+  - pip>=22.3.1
   - tqdm
   - pip:
-    - cuda-python
     - torch
     - torchvision
     - torchaudio
     - matplotlib
     - wandb
-post_build:
-  - pip install --upgrade pip
-  - pip install submodules/diff-gaussian-rasterization_depth
-  - pip install submodules/simple-knn
+# post_build:
+#   - pip install --upgrade pip
+#   - pip install submodules/diff-gaussian-rasterization_depth
+#   - pip install submodules/simple-knn
