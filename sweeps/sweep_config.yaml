@@ -10,13 +10,13 @@ parameters:
       sh_degree:
         values: [3]
       source_path:
-        values: [data/tandt/train]
+        values: [data/SeathruNeRF_dataset/JapaneseGradens-RedSea]
       model_path:
-        values: [./output/GroupSweepDebug/train]
+        values: [./output/GroupSweepDebug/JG-RedSea/]
       images:
         values: [images]
       initialization_points_option: # "cluster", "pointcloud", "random"
-        values: [random]
+        values: [pointcloud]
       resolution:
         values: [-1]
       white_background:
@@ -78,7 +78,7 @@ parameters:
       wb_group:
         values: [GroupSweepDebug]
       wb_name:
-        values: [train_sweep]
+        values: [JG_sweep]
       wb_dir:
         values: [./logs/]
       wb_resume:
