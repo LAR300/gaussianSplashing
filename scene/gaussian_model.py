@@ -141,26 +141,24 @@ class GaussianModel:
             new_colors[i, :] = average_point
         return clusters, new_colors
     
-    def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float):
+    def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float, initialization_points_option: str = "pointcloud"):
         #  Create the model from a point cloud
         # pcd : BasicPointCloud
         # pcd.points : numpy array of shape (N, 3)
         # pcd.colors : numpy array of shape (N, 3)
         # pcd.normals : numpy array of shape (N, 3), optional
         
-        random_points_initilizer = False
-        cluster_points_initilizer = True
-        if random_points_initilizer:
+        if initialization_points_option == "random":
             N = 20_000 # pcd.points.shape[0]  
             lower_bound = -250
             upper_bound = 250
             random_array = np.random.uniform(lower_bound, upper_bound, size=(N, 3))
             points = random_array
             colors = np.random.uniform(0, 1, size=(N, 3))
-        elif cluster_points_initilizer:  
+        elif initialization_points_option == "cluster":  
             points, colors = self.cluster_aux(pcd.colors)
             #colors = pcd.colors
-        else:
+        else: # if initialization_points_option == "pointcloud":
             points = pcd.points
             colors = pcd.colors
         self.spatial_lr_scale = spatial_lr_scale
