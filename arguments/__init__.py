@@ -102,8 +102,9 @@ class ModelParams(ParamGroup):
         self._source_path = ""
         self._model_path = ""
         self._images = "images"
-        self.initialization_points_option = "random" # "cluster", "pointcloud", "random"
+        self.initialization_points_option = "pointcloud" # "cluster", "pointcloud", "random"
         self._resolution = -1
+        self.underwater_processing = True
         self._white_background = False
         self.data_device = "cuda"
         self.eval = True # if True, use train and testset, else, only one set
@@ -121,6 +122,14 @@ class PipelineParams(ParamGroup):
         self.debug = False
         super().__init__(parser, "Pipeline Parameters")
 
+class UnderwaterParams(ParamGroup):
+    def __init__(self, parser):
+        
+        self.remove_bs_from_images = True
+        self.removal_using_monocular_depth = False
+        self.bs_removal_every = 5000 
+        super().__init__(parser, "Underwater Parameters")
+        
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):
         self.iterations = 75_000
@@ -134,8 +143,8 @@ class OptimizationParams(ParamGroup):
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.densification_interval = 100 # try learning rate
-        self.opacity_reset_interval = 3000 # why restart opacity?
+        self.densification_interval = 100 
+        self.opacity_reset_interval = 3000 
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002

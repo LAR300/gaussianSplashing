@@ -1,0 +1,253 @@
+import cv2
+import numpy as np
+from scipy.optimize import minimize
+from scipy.ndimage import gaussian_filter
+import os
+from uw_formation.depthmap import depth_estimation
+
+def parameter_fun_Bc_diff2(x, z, Ic):
+    Bc_inf = x[0]
+    bcb = x[1]
+    y = np.linalg.norm(Ic - (Bc_inf * (1 - np.exp(-bcb * z))))
+    return y
+
+
+def estimateBackscatter(Ism, zsm, pdark=0.1, intervals_num=20, resized_highet=300):
+    
+    resized_highet = Ism.shape[1]
+    Ism = cv2.resize(Ism, (resized_highet, int(resized_highet / Ism.shape[1] * Ism.shape[0])))
+    Ism[Ism < 0] = 0
+    zsm = cv2.resize(zsm, (resized_highet, int(resized_highet / zsm.shape[1] * zsm.shape[0])))
+    zsm[zsm < 0] = 0
+    darkZ, Bc = getBackscatterByCurveFittingMultipleImages(Ism, zsm, pdark)
+    ints = np.linspace(np.min(darkZ), np.max(darkZ), intervals_num) # intervals of depth values
+    #min_values_depth = np.zeros((len(ints) - 1, 3))
+    minvals = np.full((len(ints) - 1, 3), np.nan) # minvalues for each interval
+    for k in range(3):
+        for i in range(len(ints) - 1):
+            ind = (darkZ > ints[i]) & (darkZ <= ints[i + 1])
+            if np.sum(ind) == 0:
+                continue
+            else:
+                minvals[i, k] = np.min(Bc[ind, k])
+                # index_min = np.argmin(Bc[ind, k], axis=0)
+                # min_values_depth[i, k] = darkZ[index_min]
+    
+    thisz = ints[:-1] # all the bins
+    exclude = np.isnan(minvals[:, 0]) | np.isnan(minvals[:, 1]) |  np.isnan(minvals[:, 2])
+    thisz = thisz[~exclude] # excluding the nan or inf values
+    minvals = minvals[~exclude, :]
+    thisz = np.concatenate([[0], thisz])
+    minvals = np.vstack([[0, 0, 0], minvals])
+    
+    x0 = [np.random.rand(), np.random.rand()*5]
+    lb = [0, 1]
+    ub = [0, 5]
+    out = np.zeros((2, 3))
+    
+    options = {
+    'disp': False,
+    'maxiter': 1000,
+    'maxfun': 100000,
+    'ftol': 1e-6
+    }
+    x0 = [np.random.rand(), np.random.rand()*5]  
+    for k in range(3):
+        f = lambda x: parameter_fun_Bc_diff2(x, thisz, minvals[:, k])
+        problem = {'fun': f, 'x0': x0, 'bounds': [lb, ub], 'options': options}
+        result = minimize(**problem)
+        out[:, k] = result.x
+
+    Bc_inf = out[0, :]
+    bcb = out[1, :]
+    params = {'Bc_inf': Bc_inf, 'betac_b': bcb, 'pdark': pdark}
+    return params # BGR
+
+def getBackscatterByCurveFittingMultipleImages(I, dm, pdark=1, rhoflag=0, edges_num=10):
+    if rhoflag:
+        sigmaVal = 1 * (max(I.shape) / 2)
+        Ec = 2 * gaussian_filter(I, sigma=sigmaVal)
+        rho = I / Ec
+        rho = np.clip(rho, 0, 1)
+    else:
+        rho = I
+
+    edges = np.linspace(np.min(dm), np.max(dm), edges_num)
+    zcluster = clusterRange(dm, edges)
+    maskRho = np.zeros(dm.shape)
+    for i in range(len(edges) - 1):
+        thisMask = (zcluster == i)
+        if np.sum(thisMask) > 0:
+            thisRho = cropImgToDepthMap(rho, thisMask)
+            thisMaskRho = findDarkestPixels(thisRho, pdark)
+            numFound = np.sum(thisMaskRho)
+            maskRho += thisMaskRho
+
+    maskRho = maskRho.astype(bool)
+    darkZ, Bc = extractDarkestPixels(I, maskRho, dm)
+    exclude2 = np.isnan(darkZ) | np.isinf(darkZ)
+    darkZ = darkZ[~exclude2]
+    Bc = Bc[~exclude2.flatten(), :]
+    exclude = np.any(Bc < 0, axis=1)
+    darkZ = darkZ[~exclude]
+    Bc = Bc[~exclude, :]
+    return darkZ, Bc
+
+
+def clusterRange(dm, edges):
+    bins = len(edges) - 1
+    cluster = np.zeros(dm.shape)
+    for i in range(bins):
+        cluster[(dm >= edges[i]) & (dm < edges[i+1])] = i
+    return cluster
+
+
+def extractDarkestPixels(I, mask, dm):
+    s = I.shape
+    if len(s) == 3:
+        Ires = np.reshape(I, (s[0] * s[1], 3))
+        maskres = np.reshape(mask, (s[0] * s[1], 1))
+        dmres = np.reshape(dm, (s[0] * s[1], 1))
+        darkPix = Ires[maskres[:, 0]]
+        darkZ = dmres[maskres[:, 0]]
+    else:
+        Ires = np.reshape(I, (s[0] * s[1], 1))
+        maskres = np.reshape(mask, (s[0] * s[1], 1))
+        dmres = np.reshape(dm, (s[0] * s[1], 1))
+        darkPix = Ires[maskres[:, 0]]
+        darkZ = dmres[maskres[:, 0]]
+    return darkZ, darkPix
+
+def cropImgToDepthMap(rho, mask, mask_value=-1):
+    # Apply the mask to the image
+    cropped_image = np.where(np.expand_dims(mask,axis=-1), rho, mask_value)
+    return cropped_image
+
+def findDarkestPixels(thisRho, pdark, too_dark_flag=False):
+    # Initialize an empty mask for each channel
+    masks = []
+    # Iterate over each channel
+    for channel in range(3):
+        # Sort the pixels in the channel in ascending order
+        sorted_pixels = np.sort(thisRho[:,:,channel].flatten())
+        sorted_pixels = sorted_pixels[sorted_pixels >= 0]
+        # Compute the threshold value for the lower pdark percentile
+        threshold_value = 0
+        pdark_c = pdark
+        if too_dark_flag:
+            pdark_c = pdark - 0.005
+            while threshold_value == 0:
+                pdark_c = pdark_c + 0.005
+                threshold_index = int(len(sorted_pixels) * pdark_c) if pdark_c < 1 else len(sorted_pixels) - 1
+                threshold_value = sorted_pixels[threshold_index]
+        else:
+            threshold_index = int(len(sorted_pixels) * pdark_c) if pdark_c < 1 else len(sorted_pixels) - 1
+            threshold_value = sorted_pixels[threshold_index]
+
+        # Create a mask where pixels below the threshold value and pixels greater than or equal to zero are True for this channel
+        mask_channel = (thisRho[:,:,channel] <= threshold_value) & (thisRho[:,:,channel] >= 0)
+        masks.append(mask_channel)
+    
+    # Stack masks for each channel along the last axis to form the final mask
+    stacked_masks = np.stack(masks, axis=-1)
+    mask = np.all(stacked_masks, axis=-1)
+
+    return mask
+
+def create_backscatter_image(z, bs_dict):
+    Bc_inf = bs_dict['Bc_inf']
+    bcb = bs_dict['betac_b']
+    z_3 = np.stack([z,z,z], axis=-1)
+    y = Bc_inf * (1 - np.exp(-bcb * z_3))
+    return y
+
+def clean_bs_image(I, bs_image):
+    return I - bs_image
+
+def add_bs_image(Dc, bs_image):
+    return Dc + bs_image
+
+def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
+    
+    if depth:
+        return cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+    else:
+        image = cv2.imread(filename, code)
+        if np.max(image) > 1:
+            image = image / 255.0
+        return image
+    
+def save_image(filename, image):
+    if np.max(image) <= 1:
+        image = image * 255.0
+    if image.shape[0] in [1,2,3]:
+        image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
+    cv2.imwrite(filename, image)
+
+def preform_full_bs_removal(image, bs_dict=None, image_depth=None):
+    transpose_chw = False
+    if image.shape[0] in [1,2,3]:
+        transpose_chw = True
+        image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
+    if image_depth is None or image_depth.shape != image.shape[:2]:
+        image_depth = depth_estimation(image) # using midas depth estimation
+    if bs_dict is None:
+        bs_dict = estimateBackscatter(image, image_depth, pdark=0.1)
+    bs_image = create_backscatter_image(image_depth, bs_dict)
+    clean_from_bs = clean_bs_image(image, bs_image)
+    if transpose_chw:
+        # transpose HWC -> CHW
+        bs_image = np.transpose(bs_image, (2, 0, 1))
+        clean_from_bs = np.transpose(clean_from_bs, (2, 0, 1))
+    return clean_from_bs, bs_image, bs_dict
+
+def preform_addition_full_bs(Dc, bs_dict, image_depth=None):
+    transpose_chw = False
+    if Dc.shape[0] in [1,2,3]:
+        transpose_chw = True
+        Dc = np.transpose(Dc, (1, 2, 0)) # transpose CHW -> HWC
+    if image_depth is None or image_depth.shape != Dc.shape[:2]:
+        image_depth = depth_estimation(Dc) # using midas depth estimation
+    bs_image = create_backscatter_image(image_depth, bs_dict)
+    Ic = add_bs_image(Dc, bs_image)
+    if transpose_chw:
+        # transpose HWC -> CHW
+        Ic = np.transpose(Ic, (2, 0, 1))
+    return Ic
+
+    
+def preform_full_bs_removal_path(input_image_path, output_image_path, image_depth=None):
+    image = load_image(input_image_path)
+    if image_depth is None or image_depth.shape != image.shape[:2]:
+        print('Estimating depth')
+        image_depth = depth_estimation(image)
+    bs_dict = estimateBackscatter(image, image_depth, pdark=0.1)
+    bs_image = create_backscatter_image(image_depth, bs_dict)
+    clean_from_bs = clean_bs_image(image, bs_image)
+    save_image(output_image_path, clean_from_bs)
+    
+
+
+def preform_bs_on_dir(input_dir, output_dir):
+    for file in os.listdir(input_dir):
+        if file.endswith(".png") or file.endswith(".jpg") or file.endswith(".jpeg"):
+            input_image = os.path.join(input_dir,file)
+            output_image = os.path.join(output_dir,file)
+            preform_full_bs_removal_path(input_image, output_image)
+            print(f'Processing {file} done')
+            
+if __name__ == "__main__":
+    whiteblancing_dir = os.path.join('uw_formation', 'white_balancing')
+    bs_dir = os.path.join('uw_formation', 'bs_estimation')
+    depth_dir = os.path.join('uw_formation', 'depth_estimation')
+    input_image_name = "MTN_1103"
+    input_image = os.path.join(whiteblancing_dir,f"{input_image_name}.png")
+    # input_depth = os.path.join(depth_dir,f"{input_image_name}_depth.png")
+    input_depth = os.path.join(depth_dir,f"train_MTN_1103_1.png")
+    output_image_name_cleanbs = f"{input_image_name}_bs_1.png"
+    #output_image_name_cleanbs = f"{input_image_name}_bs_clean.png"
+    #preform_full_bs_removal_path(input_image, os.path.join(bs_dir,output_image_name_cleanbs), image_depth=load_image(input_depth, depth=True))
+
+    
+    seathru_nerf_data_dir = os.path.join('data', 'SeathruNeRF_dataset')
+    preform_bs_on_dir(os.path.join(seathru_nerf_data_dir, 'Panama', 'images_wb'), os.path.join(seathru_nerf_data_dir, 'Panama', 'Panama_images_without_bs'))

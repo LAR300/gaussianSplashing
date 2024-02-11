@@ -25,6 +25,8 @@ parameters:
         values: [cuda]
       eval:
         values: [true]
+      underwater_processing:
+        value: [true]
   OptimizationParameters:
     parameters:
       iterations:
@@ -112,6 +114,14 @@ parameters:
       checkpoint_iterations:
         values: [[
         ]]  
+  UnderwaterParameters:
+    parameters:
+      remove_bs_from_images:
+        value: [false]
+      removal_using_monocular_depth:
+        value: [false]
+      bs_removal_every:
+        values: [5000]  
   TrainingTime:
     parameters:
       minutes:

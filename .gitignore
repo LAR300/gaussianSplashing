@@ -1,4 +1,5 @@
 *.pyc
+__pycache__
 .vscode
 data
 output
@@ -11,3 +12,9 @@ clustering/pcds
 tensorboard_3d
 screenshots
 sweeps/sweep_config.yaml
+uw_formation/bs_estimation
+uw_formation/depth_gs
+uw_formation/depth_estimation
+uw_formation/white_balancing
+SIBR_viewers
+simple-knn
