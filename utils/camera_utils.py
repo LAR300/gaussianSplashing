@@ -11,16 +11,16 @@
 
 from scene.cameras import Camera
 import numpy as np
-from utils.general_utils import PILtoTorch
+from utils.general_utils import CVtoTorch
 from utils.graphics_utils import fov2focal
 
 WARNED = False
 
 def loadCam(args, id, cam_info, resolution_scale):
-    orig_w, orig_h = cam_info.image.size
+    orig_w, orig_h = cam_info.image.shape[1], cam_info.image.shape[0]
 
     if args.resolution in [1, 2, 4, 8]:
-        resolution = round(orig_w/(resolution_scale * args.resolution)), round(orig_h/(resolution_scale * args.resolution))
+        resolution = round(orig_w/(resolution_scale * args.resolution)). round(orig_h/(resolution_scale * args.resolution))
     else:  # should be a type that converts to float
         if args.resolution == -1:
             if orig_w > 1600:
@@ -38,7 +38,7 @@ def loadCam(args, id, cam_info, resolution_scale):
         scale = float(global_down) * float(resolution_scale)
         resolution = (int(orig_w / scale), int(orig_h / scale))
 
-    resized_image_rgb = PILtoTorch(cam_info.image, resolution)
+    resized_image_rgb = CVtoTorch(cam_info.image, resolution)
 
     gt_image = resized_image_rgb[:3, ...]
     loaded_mask = None

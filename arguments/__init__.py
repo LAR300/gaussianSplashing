@@ -104,7 +104,7 @@ class ModelParams(ParamGroup):
         self._images = "images"
         self.initialization_points_option = "pointcloud" # "cluster", "pointcloud", "random"
         self._resolution = -1
-        self.underwater_processing = True
+        self.underwater_processing = "ON"
         self._white_background = False
         self.data_device = "cuda"
         self.eval = True # if True, use train and testset, else, only one set

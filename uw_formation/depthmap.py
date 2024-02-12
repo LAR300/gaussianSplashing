@@ -1,8 +1,14 @@
 import cv2
 import torch
 import os
+import numpy as np
 
 def depth_estimation(image):
+    transpose_chw = False
+    if image.shape[0] in [1,2,3]:
+         # transpose CHW -> HWC
+        transpose_chw = True
+        image = np.transpose(image, (1, 2, 0))
     model_type = "DPT_Large"     # MiDaS v3 - Large     (highest accuracy, slowest inference speed)
     #model_type = "DPT_Hybrid"   # MiDaS v3 - Hybrid    (medium accuracy, medium inference speed)
     #model_type = "MiDaS_small"  # MiDaS v2.1 - Small   (lowest accuracy, highest inference speed)
@@ -18,8 +24,8 @@ def depth_estimation(image):
         transform = midas_transforms.dpt_transform
     else:
         transform = midas_transforms.small_transform
-        
-
+    
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     input_batch = transform(image).to(device)
 
     with torch.no_grad():
@@ -33,6 +39,9 @@ def depth_estimation(image):
         ).squeeze()
 
     output = prediction.cpu().numpy()
+    if transpose_chw:
+        # transpose HWC -> CHW
+        image = np.transpose(image, (2, 0, 1))
     return output
 if __name__ == "__main__":
     whiteblancing_dir = os.path.join('uw_formation', 'white_balancing')

@@ -3,7 +3,10 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.ndimage import gaussian_filter
 import os
-from uw_formation.depthmap import depth_estimation
+try:
+    from uw_formation.depthmap import depth_estimation
+except ImportError:
+    from depthmap import depth_estimation
 
 def parameter_fun_Bc_diff2(x, z, Ic):
     Bc_inf = x[0]
@@ -60,7 +63,7 @@ def estimateBackscatter(Ism, zsm, pdark=0.1, intervals_num=20, resized_highet=30
 
     Bc_inf = out[0, :]
     bcb = out[1, :]
-    params = {'Bc_inf': Bc_inf, 'betac_b': bcb, 'pdark': pdark}
+    params = {'Bc_inf': np.array(Bc_inf), 'betac_b': np.array(bcb), 'pdark': pdark}
     return params # BGR
 
 def getBackscatterByCurveFittingMultipleImages(I, dm, pdark=1, rhoflag=0, edges_num=10):
@@ -168,7 +171,6 @@ def add_bs_image(Dc, bs_image):
     return Dc + bs_image
 
 def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
-    
     if depth:
         return cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
     else:
@@ -184,24 +186,7 @@ def save_image(filename, image):
         image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
     cv2.imwrite(filename, image)
 
-def preform_full_bs_removal(image, bs_dict=None, image_depth=None):
-    transpose_chw = False
-    if image.shape[0] in [1,2,3]:
-        transpose_chw = True
-        image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
-    if image_depth is None or image_depth.shape != image.shape[:2]:
-        image_depth = depth_estimation(image) # using midas depth estimation
-    if bs_dict is None:
-        bs_dict = estimateBackscatter(image, image_depth, pdark=0.1)
-    bs_image = create_backscatter_image(image_depth, bs_dict)
-    clean_from_bs = clean_bs_image(image, bs_image)
-    if transpose_chw:
-        # transpose HWC -> CHW
-        bs_image = np.transpose(bs_image, (2, 0, 1))
-        clean_from_bs = np.transpose(clean_from_bs, (2, 0, 1))
-    return clean_from_bs, bs_image, bs_dict
-
-def preform_addition_full_bs(Dc, bs_dict, image_depth=None):
+def preform_full_bs_addition(Dc, bs_dict, image_depth=None):
     transpose_chw = False
     if Dc.shape[0] in [1,2,3]:
         transpose_chw = True
@@ -214,6 +199,26 @@ def preform_addition_full_bs(Dc, bs_dict, image_depth=None):
         # transpose HWC -> CHW
         Ic = np.transpose(Ic, (2, 0, 1))
     return Ic
+
+def preform_full_bs_removal(image, bs_dict=None, image_depth=None, return_depth=False):
+    transpose_chw = False
+    if image.shape[0] in [1,2,3]:
+         # transpose CHW -> HWC
+        transpose_chw = True
+        image = np.transpose(image, (1, 2, 0))
+    if image_depth is None or image_depth.shape != image.shape[:2]:
+        image_depth = depth_estimation(image) # using midas depth estimation
+    if bs_dict is None:
+        bs_dict = estimateBackscatter(image, image_depth, pdark=0.1)
+    bs_image = create_backscatter_image(image_depth, bs_dict)
+    clean_from_bs = clean_bs_image(image, bs_image)
+    if transpose_chw:
+        # transpose HWC -> CHW
+        bs_image = np.transpose(bs_image, (2, 0, 1))
+        clean_from_bs = np.transpose(clean_from_bs, (2, 0, 1))
+    if return_depth:
+        return clean_from_bs, bs_image, bs_dict, image_depth
+    return clean_from_bs, bs_image, bs_dict
 
     
 def preform_full_bs_removal_path(input_image_path, output_image_path, image_depth=None):
@@ -243,11 +248,11 @@ if __name__ == "__main__":
     input_image_name = "MTN_1103"
     input_image = os.path.join(whiteblancing_dir,f"{input_image_name}.png")
     # input_depth = os.path.join(depth_dir,f"{input_image_name}_depth.png")
-    input_depth = os.path.join(depth_dir,f"train_MTN_1103_1.png")
-    output_image_name_cleanbs = f"{input_image_name}_bs_1.png"
+    input_depth = os.path.join(depth_dir,f"train_MTN_1103_1000.png")
+    output_image_name_cleanbs = f"{input_image_name}_bs_1000.png"
     #output_image_name_cleanbs = f"{input_image_name}_bs_clean.png"
-    #preform_full_bs_removal_path(input_image, os.path.join(bs_dir,output_image_name_cleanbs), image_depth=load_image(input_depth, depth=True))
+    preform_full_bs_removal_path(input_image, os.path.join(bs_dir,output_image_name_cleanbs), image_depth=load_image(input_depth, depth=True))
 
     
-    seathru_nerf_data_dir = os.path.join('data', 'SeathruNeRF_dataset')
-    preform_bs_on_dir(os.path.join(seathru_nerf_data_dir, 'Panama', 'images_wb'), os.path.join(seathru_nerf_data_dir, 'Panama', 'Panama_images_without_bs'))
+    # seathru_nerf_data_dir = os.path.join('data', 'SeathruNeRF_dataset')
+    # preform_bs_on_dir(os.path.join(seathru_nerf_data_dir, 'Panama', 'images_wb'), os.path.join(seathru_nerf_data_dir, 'Panama', 'Panama_images_without_bs'))

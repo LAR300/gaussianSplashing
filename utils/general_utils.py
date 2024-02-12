@@ -14,6 +14,23 @@ import sys
 from datetime import datetime
 import numpy as np
 import random
+import cv2
+
+def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
+    if depth:
+        return cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+    else:
+        image = cv2.imread(filename, code)
+        if np.max(image) > 1:
+            image = image / 255.0
+        return image
+    
+def save_image(filename, image):
+    if np.max(image) <= 1:
+        image = image * 255.0
+    if image.shape[0] in [1,2,3]:
+        image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
+    cv2.imwrite(filename, image)
 
 def inverse_sigmoid(x):
     return torch.log(x/(1-x)) # sigmoid(x) = 1/(1+exp(-x))
@@ -25,7 +42,21 @@ def PILtoTorch(pil_image, resolution):
         return resized_image.permute(2, 0, 1)
     else:
         return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
-
+    
+def CVtoTorch(cv_image, resolution):
+    # pil_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+    resized_image_cv2 = cv2.resize(cv_image, resolution)
+    if np.max(resized_image_cv2) > 1:
+        resized_image = torch.from_numpy(resized_image_cv2.astype(np.float32) / 255.0)
+    else:
+        resized_image = torch.from_numpy(resized_image_cv2.astype(np.float32))
+    if len(resized_image.shape) == 2:
+        resized_image = resized_image.unsqueeze(2)
+    if resized_image.shape[2] in [1,2,3]:
+        # Permute dimensions to match the format expected by PyTorch (C, H, W)
+        return resized_image.permute(2, 0, 1)
+    return resized_image
+    
 def get_expon_lr_func(
     lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000
 ):
