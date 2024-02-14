@@ -1,22 +1,26 @@
 import cv2
 import numpy as np
-from scipy.optimize import minimize
+from scipy.optimize import minimize, least_squares
 from scipy.ndimage import gaussian_filter
 import os
 try:
     from uw_formation.depthmap import depth_estimation
 except ImportError:
     from depthmap import depth_estimation
+from scipy.optimize import curve_fit
 
 def parameter_fun_Bc_diff2(x, z, Ic):
+    z = np.array(z)
+    Ic = np.array(Ic)
     Bc_inf = x[0]
     bcb = x[1]
-    y = np.linalg.norm(Ic - (Bc_inf * (1 - np.exp(-bcb * z))))
+    #y = np.linalg.norm(Ic - (Bc_inf * (1 - np.exp(-bcb * z))))
+    y = np.sum((Ic - Bc_inf * (1 - np.exp(-bcb * z)))**2)
     return y
 
 
-def estimateBackscatter(Ism, zsm, pdark=0.1, intervals_num=20, resized_highet=300):
-    
+
+def estimateBackscatter(Ism, zsm, pdark=0.01, intervals_num=20, resized_highet=300):
     resized_highet = Ism.shape[1]
     Ism = cv2.resize(Ism, (resized_highet, int(resized_highet / Ism.shape[1] * Ism.shape[0])))
     Ism[Ism < 0] = 0
@@ -24,41 +28,45 @@ def estimateBackscatter(Ism, zsm, pdark=0.1, intervals_num=20, resized_highet=30
     zsm[zsm < 0] = 0
     darkZ, Bc = getBackscatterByCurveFittingMultipleImages(Ism, zsm, pdark)
     ints = np.linspace(np.min(darkZ), np.max(darkZ), intervals_num) # intervals of depth values
-    #min_values_depth = np.zeros((len(ints) - 1, 3))
-    minvals = np.full((len(ints) - 1, 3), np.nan) # minvalues for each interval
+    min_values_depth = [[],[],[]]
+    minvals = [[],[],[]] # minvalues for each interval
     for k in range(3):
         for i in range(len(ints) - 1):
             ind = (darkZ > ints[i]) & (darkZ <= ints[i + 1])
-            if np.sum(ind) == 0:
+            if np.sum(ind) == 0 or np.sum(np.isnan(Bc[ind, k])) == len(Bc[ind, k]):
                 continue
             else:
-                minvals[i, k] = np.min(Bc[ind, k])
-                # index_min = np.argmin(Bc[ind, k], axis=0)
-                # min_values_depth[i, k] = darkZ[index_min]
+                minvals[k].append(np.max(Bc[ind, k]))
+                index_min = np.argmax(Bc[ind, k], axis=0)
+                min_values_depth[k].append(darkZ[ind][index_min])
     
-    thisz = ints[:-1] # all the bins
-    exclude = np.isnan(minvals[:, 0]) | np.isnan(minvals[:, 1]) |  np.isnan(minvals[:, 2])
-    thisz = thisz[~exclude] # excluding the nan or inf values
-    minvals = minvals[~exclude, :]
-    thisz = np.concatenate([[0], thisz])
-    minvals = np.vstack([[0, 0, 0], minvals])
+    #thisz = ints[:-1] # all the bins
+    #exclude = np.isnan(minvals[:, 0]) | np.isnan(minvals[:, 1]) |  np.isnan(minvals[:, 2])
+    #thisz = thisz[~exclude] # excluding the nan or inf values
+    #minvals = minvals[~exclude, :]
+    #thisz = np.concatenate([[0], thisz])
+    #minvals = np.vstack([[0, 0, 0], minvals])
     
-    x0 = [np.random.rand(), np.random.rand()*5]
-    lb = [0, 1]
-    ub = [0, 5]
+    x0 = [np.random.rand(), np.random.rand()]
+    lb = [0, 0]
+    ub = [1, 1]
+    b1_bounds = (0, 1)  # Example bounds for b1
+    b2_bounds = (0, 1)   # Example bounds for b2
     out = np.zeros((2, 3))
+    def model_func(A2, b1, b2):
+        return b1 * (1 - np.exp(-b2 * A2))
     
     options = {
-    'disp': False,
-    'maxiter': 1000,
-    'maxfun': 100000,
-    'ftol': 1e-6
+        'disp': False,
+        'maxiter': 1000,
+        'eps': 1e-6,
     }
-    x0 = [np.random.rand(), np.random.rand()*5]  
     for k in range(3):
-        f = lambda x: parameter_fun_Bc_diff2(x, thisz, minvals[:, k])
-        problem = {'fun': f, 'x0': x0, 'bounds': [lb, ub], 'options': options}
-        result = minimize(**problem)
+        f = lambda x: parameter_fun_Bc_diff2(x, min_values_depth[k], minvals[k])
+#problem = {'fun': f, 'x0': x0, 'bounds': (lb, ub)}
+        #result = minimize(**problem)
+        result = least_squares(f, x0, bounds=[lb, ub])
+        params, covariance = curve_fit(model_func, xdata=min_values_depth[k], ydata=minvals[k], bounds=([b1_bounds[0], b2_bounds[0]], [b1_bounds[1], b2_bounds[1]]))
         out[:, k] = result.x
 
     Bc_inf = out[0, :]
@@ -160,8 +168,8 @@ def findDarkestPixels(thisRho, pdark, too_dark_flag=False):
 def create_backscatter_image(z, bs_dict):
     Bc_inf = bs_dict['Bc_inf']
     bcb = bs_dict['betac_b']
-    z_3 = np.stack([z,z,z], axis=-1)
-    y = Bc_inf * (1 - np.exp(-bcb * z_3))
+    y = [Bc_inf[i] * (1 - np.exp(-bcb[i] * z)) for i in range(Bc_inf.shape[0])]
+    y = np.stack(y, axis=-1)
     return y
 
 def clean_bs_image(I, bs_image):
@@ -209,7 +217,7 @@ def preform_full_bs_removal(image, bs_dict=None, image_depth=None, return_depth=
     if image_depth is None or image_depth.shape != image.shape[:2]:
         image_depth = depth_estimation(image) # using midas depth estimation
     if bs_dict is None:
-        bs_dict = estimateBackscatter(image, image_depth, pdark=0.1)
+        bs_dict = estimateBackscatter(image, image_depth, pdark=0.01)
     bs_image = create_backscatter_image(image_depth, bs_dict)
     clean_from_bs = clean_bs_image(image, bs_image)
     if transpose_chw:
@@ -226,7 +234,7 @@ def preform_full_bs_removal_path(input_image_path, output_image_path, image_dept
     if image_depth is None or image_depth.shape != image.shape[:2]:
         print('Estimating depth')
         image_depth = depth_estimation(image)
-    bs_dict = estimateBackscatter(image, image_depth, pdark=0.1)
+    bs_dict = estimateBackscatter(image, image_depth, pdark=0.01)
     bs_image = create_backscatter_image(image_depth, bs_dict)
     clean_from_bs = clean_bs_image(image, bs_image)
     save_image(output_image_path, clean_from_bs)
@@ -245,13 +253,22 @@ if __name__ == "__main__":
     whiteblancing_dir = os.path.join('uw_formation', 'white_balancing')
     bs_dir = os.path.join('uw_formation', 'bs_estimation')
     depth_dir = os.path.join('uw_formation', 'depth_estimation')
-    input_image_name = "MTN_1103"
+    depth_gs_dir = os.path.join('uw_formation', 'depth_gs')
+    input_image_name = "0_00001"
+    input_depth = None
     input_image = os.path.join(whiteblancing_dir,f"{input_image_name}.png")
-    # input_depth = os.path.join(depth_dir,f"{input_image_name}_depth.png")
-    input_depth = os.path.join(depth_dir,f"train_MTN_1103_1000.png")
-    output_image_name_cleanbs = f"{input_image_name}_bs_1000.png"
+    #input_depth = os.path.join(depth_dir,f"{input_image_name}_depth.png")
+    #input_depth = os.path.join(depth_gs_dir,f"train_{input_image_name}_30000.png")
+    output_image_name_cleanbs = f"{input_image_name}_nonbs.png"
+    output_image_name_bs = f"{input_image_name}_bs.png"
     #output_image_name_cleanbs = f"{input_image_name}_bs_clean.png"
-    preform_full_bs_removal_path(input_image, os.path.join(bs_dir,output_image_name_cleanbs), image_depth=load_image(input_depth, depth=True))
+    image = load_image(input_image)#load_image(input_image)
+    clean_from_bs, bs_image, bs_dict = preform_full_bs_removal(image, bs_dict=None,  return_depth=False)
+    save_image(output_image_name_cleanbs, clean_from_bs)
+    save_image(output_image_name_bs, bs_image)
+    print(f'bs_dict: {bs_dict}')
+    print(f'Processing {input_image_name} done')
+    #preform_full_bs_removal_path(input_image, os.path.join(bs_dir,output_image_name_cleanbs), image_depth=load_image(input_depth, depth=True))
 
     
     # seathru_nerf_data_dir = os.path.join('data', 'SeathruNeRF_dataset')

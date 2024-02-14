@@ -26,7 +26,7 @@ parameters:
       eval:
         values: [true]
       underwater_processing:
-        value: [ON]
+        value: [ON, OFF]
   OptimizationParameters:
     parameters:
       iterations:
@@ -36,7 +36,7 @@ parameters:
       position_lr_final:
         values: [1.6e-06]
       position_lr_delay_mult:
-        values: [0.005, 0.01, 0.02]
+        values: [0.01]
       position_lr_max_steps:
         values: [30000]
       feature_lr:
@@ -50,11 +50,11 @@ parameters:
       percent_dense:
         values: [0.01]
       lambda_dssim:
-        values: [0.15, 0.2, 0.25]
+        values: [0.2]
       densification_interval:
-        values: [100, 500]
+        values: [100]
       opacity_reset_interval:
-        values: [2000, 3000, 4000]
+        values: [3000]
       densify_from_iter:
         values: [500]
       densify_until_iter:
@@ -117,11 +117,11 @@ parameters:
   UnderwaterParameters:
     parameters:
       remove_bs_from_images:
-        value: [false]
+        value: [false, true]
       removal_using_monocular_depth:
-        value: [false]
+        value: [false, true]
       bs_removal_every:
-        values: [5000]  
+        values: [5000, 10000]  
   TrainingTime:
     parameters:
       minutes:
