@@ -104,7 +104,7 @@ class ModelParams(ParamGroup):
         self._images = "images"
         self.initialization_points_option = "pointcloud" # "cluster", "pointcloud", "random"
         self._resolution = -1
-        self.underwater_processing = "ON"
+        self.underwater_processing = "OFF" # "OFF", "ON"
         self._white_background = False
         self.data_device = "cuda"
         self.eval = True # if True, use train and testset, else, only one set
@@ -132,7 +132,7 @@ class UnderwaterParams(ParamGroup):
         
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):
-        self.iterations = 75_000
+        self.iterations = 30_000
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016
         self.position_lr_delay_mult = 0.01
@@ -169,7 +169,7 @@ def add_general_params(parser):
     group_general_args.add_argument('--port', type=int, default=6009)
     group_general_args.add_argument('--debug_from', type=int, default=-1)
     group_general_args.add_argument('--detect_anomaly', action='store_true', default=False)
-    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 1000, 3000, 4000, 7000, 10_000, 150_00 ,20_000, 30_000, 50_000]) # default=[7_000, 30_000]
+    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 3000 ,7000, 10_000, 20_000 , 30_000, 50_000]) # default=[7_000, 30_000]
     group_general_args.add_argument("--save_iterations", nargs="+", type=int, default=[75_000])
     group_general_args.add_argument("--quiet", action="store_true")
     group_general_args.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])

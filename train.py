@@ -49,7 +49,8 @@ def train_sweep(namespace_dict=None, sweep_train_flag=True):
     safe_state(cfg_dot_dic.GeneralParameters.quiet)
 
     # Start GUI server, configure and run training
-    #network_gui.init(args.ip, args.port)
+    if cfg_dot_dic.GeneralParameters.ip != "" and cfg_dot_dic.GeneralParameters.port != "":
+        network_gui.init(cfg_dot_dic.GeneralParameters.ip, cfg_dot_dic.GeneralParameters.port)
     torch.autograd.set_detect_anomaly(cfg_dot_dic.GeneralParameters.detect_anomaly)
     
     training_miutes, training_seconds = training(cfg_dot_dic ,cfg_dot_dic.LoadingParameters, cfg_dot_dic.OptimizationParameters, cfg_dot_dic.PipelineParameters,  cfg_dot_dic.UnderwaterParameters,
@@ -83,20 +84,21 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
     # for UW processing
     curr_bs_dict = None
     for iteration in range(first_iter, opt.iterations + 1):        
-        # if network_gui.conn == None:
-        #     network_gui.try_connect()
-        # while network_gui.conn != None:
-        #     try:
-        #         net_image_bytes = None
-        #         custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
-        #         if custom_cam != None:
-        #             net_image = render(custom_cam, gaussians, pipe, background, scaling_modifer)["render"]
-        #             net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
-        #         network_gui.send(net_image_bytes, dataset.source_path)
-        #         if do_training and ((iteration < int(opt.iterations)) or not keep_alive):
-        #             break
-        #     except Exception as e:
-        #         network_gui.conn = None
+        if cfg_dot_dic.GeneralParameters.ip != "" and cfg_dot_dic.GeneralParameters.port != "":
+            if network_gui.conn == None:
+                network_gui.try_connect()
+            while network_gui.conn != None:
+                try:
+                    net_image_bytes = None
+                    custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
+                    if custom_cam != None:
+                        net_image = render(custom_cam, gaussians, pipe, background, scaling_modifer)["render"]
+                        net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
+                    network_gui.send(net_image_bytes, dataset.source_path)
+                    if do_training and ((iteration < int(opt.iterations)) or not keep_alive):
+                        break
+                except Exception as e:
+                    network_gui.conn = None
 
         iter_start.record()
 

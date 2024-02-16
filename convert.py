@@ -13,7 +13,8 @@ import os
 import logging
 from argparse import ArgumentParser
 import shutil
-from PIL import Image
+import cv2
+#from PIL import Image
 
 # This Python script is based on the shell converter script provided in the MipNerF 360 repository.
 parser = ArgumentParser("Colmap converter")
@@ -107,9 +108,16 @@ def resize_and_save(destination_file, factor, magick_flag=False, magick_command=
             exit(exit_code)
     else: 
         try:
-            image = Image.open(destination_file)
-            resized_image = image.resize((int(image.width * factor), int(image.height * factor)))
-            resized_image.save(destination_file)
+            image = cv2.imread(destination_file)
+            new_width = int(image.shape[1] * factor)
+            new_height = int(image.shape[0] * factor)
+            new_dimensions = (new_width, new_height)
+            resized_image = cv2.resize(image, new_dimensions)
+            cv2.imwrite(destination_file, resized_image)
+            
+            # image = Image.open(destination_file)
+            # resized_image = image.resize((int(image.width * factor), int(image.height * factor)))
+            # resized_image.save(destination_file)
         except Exception as e:
             logging.error(f"Failed to resize image: {e}")
 
