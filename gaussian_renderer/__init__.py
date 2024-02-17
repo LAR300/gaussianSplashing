@@ -15,7 +15,7 @@ from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianR
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None):
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, override_color_cmed = None):
     """
     Render the scene. 
     
@@ -52,34 +52,45 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     means3D = pc.get_xyz
     means2D = screenspace_points
-    opacity = pc.get_opacity
+    opacity = pc.get_opacity # initial opacity is (inverse_sigmoid) 0.1 (for example, for the first iteration of the optimization process)
 
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
     # scaling / rotation by the rasterizer.
     scales = None
     rotations = None
     cov3D_precomp = None
-    if pipe.compute_cov3D_python:
+    if pipe.compute_cov3D_python: #  usually False
         cov3D_precomp = pc.get_covariance(scaling_modifier)
     else:
-        scales = pc.get_scaling
-        rotations = pc.get_rotation
+        scales = pc.get_scaling # initialization is: the average distance of the points from its 3 nearest neighbors (ln(sqrt(dist))) 
+        rotations = pc.get_rotation # initialization is: no rotation
 
     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
     shs = None
     colors_precomp = None
-    if override_color is None:
-        if pipe.convert_SHs_python:
+    colors_precomp_cmed = None # addition uw
+    if override_color is None: # usually None
+        if pipe.convert_SHs_python: # usually False
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
             dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
             sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
             colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+            
+            # start addition uw
+            shs_view_cmed = pc.get_features_cmed.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
+            dir_pp_cmed = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features_cmed.shape[0], 1))
+            dir_pp_cmed_normalized = dir_pp_cmed/dir_pp_cmed.norm(dim=1, keepdim=True)
+            sh2rgb_cmed = eval_sh(pc.active_sh_degree, shs_view_cmed, dir_pp_cmed_normalized)
+            cmed_precomp = torch.clamp_min(sh2rgb_cmed + 0.5, 0.0)
+            # end addition uw
         else:
-            shs = pc.get_features
+            shs = pc.get_features # colors are represented by SHs
+            shs_cmed = pc.get_features_cmed # addition uw
     else:
         colors_precomp = override_color
+        colors_precomp_cmed = override_color_cmed # addition uw
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # fowrad() returns a dictionary with the rendered image, depth and alpha,
@@ -88,6 +99,10 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         means2D = means2D,
         shs = shs,
         colors_precomp = colors_precomp,
+        # start addition uw
+        shs_cmed = shs_cmed,
+        colors_precomp_cmed = colors_precomp_cmed, 
+        # end addition uw
         opacities = opacity,
         scales = scales,
         rotations = rotations,

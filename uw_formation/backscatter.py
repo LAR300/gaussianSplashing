@@ -183,6 +183,18 @@ def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
             image = image / 255.0
         return image
     
+def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
+    if depth:
+        return cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+    else:
+        image = cv2.imread(filename, code)
+        if code == cv2.IMREAD_COLOR or code==cv2.IMREAD_UNCHANGED:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) # BGR->RGB
+        if np.max(image) > 1:
+            image = image / 255.0
+        return image
+    
+    
 def save_image(filename, image, depth=False):
     if depth:
         bits = 1
@@ -215,6 +227,7 @@ def save_image(filename, image, depth=False):
         # image = (image * 255).astype(np.uint8) 
         # cv2.imwrite(filename, image)
         return
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # RGB->BGR
     if np.max(image) <= 1:
         image = (image * 255).astype(np.uint8) 
     if image.shape[0] in [1,2,3] and image.ndim >2:

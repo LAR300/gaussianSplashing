@@ -320,10 +320,10 @@ def training_report(iteration, Ll1, loss, l1_loss,
                             tr = torchvision.transforms.ToPILImage()
                             return tr(torch_image.squeeze(0).detach().cpu())
                         def wb_torch2np(torch_image):
-                            bgr_image = torch_image.squeeze(0).detach().cpu().numpy()
-                            if bgr_image.shape[0] in [1,2,3]:
-                                bgr_image = np.transpose(bgr_image, (1, 2, 0)) # C*H*W -> H*W*C 
-                            return bgr_image[..., ::-1] # Convert BGR (CV format) to RGB (WB format)
+                            rgb_image = torch_image.squeeze(0).detach().cpu().numpy()
+                            if rgb_image.shape[0] in [1,2,3]:
+                                rgb_image = np.transpose(rgb_image, (1, 2, 0)) # C*H*W -> H*W*C 
+                            return rgb_image#bgr_image[..., ::-1] # Convert BGR (CV format) to RGB (WB format)
                         round_num = 5
                         dc_str = '  ||  !only Dc!' if curr_bs_dict is not None else ''
                         wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered": wandb.Image(wb_torch2np(image[None]), caption=f'l1 = {round(float(l1_curr),round_num)},  psnr = {round(float(psnr_curr),round_num)}{dc_str}')}, step=iteration)

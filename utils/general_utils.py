@@ -16,21 +16,59 @@ import numpy as np
 import random
 import cv2
 
+
 def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
     if depth:
         return cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
     else:
         image = cv2.imread(filename, code)
+        if code == cv2.IMREAD_COLOR or code==cv2.IMREAD_UNCHANGED:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) # BGR->RGB
         if np.max(image) > 1:
             image = image / 255.0
         return image
     
-def save_image(filename, image):
+    
+def save_image(filename, image, depth=False):
+    if depth:
+        bits = 1
+        grayscale = True
+        if not grayscale:
+            bits = 1
+
+        if not np.isfinite(depth).all():
+            depth=np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
+            print("WARNING: Non-finite depth values present")
+
+        depth_min = image.min()
+        depth_max = image.max()
+
+        max_val = (2**(8*bits))-1
+
+        if depth_max - depth_min > np.finfo("float").eps:
+            out = max_val * (image - depth_min) / (depth_max - depth_min)
+        else:
+            out = np.zeros(image.shape, dtype=image.dtype)
+
+        if not grayscale:
+            out = cv2.applyColorMap(np.uint8(out), cv2.COLORMAP_INFERNO)
+
+        if bits == 1:
+            cv2.imwrite(filename, out.astype("uint8"))
+        elif bits == 2:
+            cv2.imwrite(filename, out.astype("uint16"))
+        # image = (image - image.min())/(image.max() - image.min())
+        # image = (image * 255).astype(np.uint8) 
+        # cv2.imwrite(filename, image)
+        return
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # RGB->BGR
     if np.max(image) <= 1:
-        image = image * 255.0
-    if image.shape[0] in [1,2,3]:
+        image = (image * 255).astype(np.uint8) 
+    if image.shape[0] in [1,2,3] and image.ndim >2:
         image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
     cv2.imwrite(filename, image)
+
+
 
 def inverse_sigmoid(x):
     return torch.log(x/(1-x)) # sigmoid(x) = 1/(1+exp(-x))
@@ -44,17 +82,18 @@ def PILtoTorch(pil_image, resolution):
         return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
     
 def CVtoTorch(cv_image, resolution):
+    # images suppose to be in RGB format, as in the case of PIL images (load_image function takes care for cv2 bgr format)
     # pil_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
     resized_image_cv2 = cv2.resize(cv_image, resolution)
     if np.max(resized_image_cv2) > 1:
         resized_image = torch.from_numpy(resized_image_cv2.astype(np.float32) / 255.0)
     else:
         resized_image = torch.from_numpy(resized_image_cv2.astype(np.float32))
-    if len(resized_image.shape) == 2:
-        resized_image = resized_image.unsqueeze(2)
+    if len(resized_image.shape) == 2: # grayscale meaning 1 channel
+        resized_image = resized_image.unsqueeze(2) # add channel dimension
     if resized_image.shape[2] in [1,2,3]:
         # Permute dimensions to match the format expected by PyTorch (C, H, W)
-        return resized_image.permute(2, 0, 1)
+        return resized_image.permute(2, 0, 1) # HWC -> CHW
     return resized_image
     
 def get_expon_lr_func(
