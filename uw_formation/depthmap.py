@@ -41,6 +41,8 @@ def depth_estimation(image):
         ).squeeze()
 
     output = prediction.cpu().numpy()
+    # output depth is opposite 
+    output = output.max() - output + 0.5
     if transpose_chw:
         # transpose HWC -> CHW
         image = np.transpose(image, (2, 0, 1))

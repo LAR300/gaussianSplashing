@@ -20,7 +20,7 @@ def parameter_fun_Bc_diff2(x, z, Ic):
 
 
 
-def estimateBackscatter(Ism, zsm, pdark=0.01, intervals_num=20, resized_highet=300):
+def estimateBackscatter(Ism, zsm, pdark=0.01, intervals_num=25, resized_highet=300):
     resized_highet = Ism.shape[1]
     Ism = cv2.resize(Ism, (resized_highet, int(resized_highet / Ism.shape[1] * Ism.shape[0])))
     Ism[Ism < 0] = 0
@@ -36,8 +36,9 @@ def estimateBackscatter(Ism, zsm, pdark=0.01, intervals_num=20, resized_highet=3
             if np.sum(ind) == 0 or np.sum(np.isnan(Bc[ind, k])) == len(Bc[ind, k]):
                 continue
             else:
-                minvals[k].append(np.max(Bc[ind, k]))
-                index_min = np.argmax(Bc[ind, k], axis=0)
+                minvals[k].append(np.min(Bc[ind, k]))
+                #minvals[k].append(ints[i]))
+                index_min = np.argmin(Bc[ind, k], axis=0)
                 min_values_depth[k].append(darkZ[ind][index_min])
     
     #thisz = ints[:-1] # all the bins
@@ -46,35 +47,30 @@ def estimateBackscatter(Ism, zsm, pdark=0.01, intervals_num=20, resized_highet=3
     #minvals = minvals[~exclude, :]
     #thisz = np.concatenate([[0], thisz])
     #minvals = np.vstack([[0, 0, 0], minvals])
-    
-    x0 = [np.random.rand(), np.random.rand()]
-    lb = [0, 0]
-    ub = [1, 1]
-    b1_bounds = (0, 1)  # Example bounds for b1
-    b2_bounds = (0, 1)   # Example bounds for b2
+    scale = 0.25
+    # x0 = [np.random.rand()*scale, np.random.rand()*scale]
+    # lb = [0, 0]
+    # ub = [scale, scale]
+    b1_bounds = (0, scale)  # Example bounds for b1
+    b2_bounds = (0, scale)   # Example bounds for b2
     out = np.zeros((2, 3))
-    def model_func(A2, b1, b2):
-        return b1 * (1 - np.exp(-b2 * A2))
+    def model_func(z, b_inf, bcb):
+        return b_inf * (1 - np.exp(-bcb * z))
     
-    options = {
-        'disp': False,
-        'maxiter': 1000,
-        'eps': 1e-6,
-    }
     for k in range(3):
-        f = lambda x: parameter_fun_Bc_diff2(x, min_values_depth[k], minvals[k])
-#problem = {'fun': f, 'x0': x0, 'bounds': (lb, ub)}
+        f = lambda x: parameter_fun_Bc_diff2(x, min_values_depth[k][3:-3], minvals[k][3:-3])
+        #problem = {'fun': f, 'x0': x0, 'bounds': (lb, ub)}
         #result = minimize(**problem)
-        result = least_squares(f, x0, bounds=[lb, ub])
+        #result = least_squares(f, x0, bounds=[lb, ub])
         params, covariance = curve_fit(model_func, xdata=min_values_depth[k], ydata=minvals[k], bounds=([b1_bounds[0], b2_bounds[0]], [b1_bounds[1], b2_bounds[1]]))
-        out[:, k] = result.x
-
+        #out[:, k] = result.x
+        out[:, k] = params
     Bc_inf = out[0, :]
     bcb = out[1, :]
     params = {'Bc_inf': np.array(Bc_inf), 'betac_b': np.array(bcb), 'pdark': pdark}
     return params # BGR
 
-def getBackscatterByCurveFittingMultipleImages(I, dm, pdark=1, rhoflag=0, edges_num=10):
+def getBackscatterByCurveFittingMultipleImages(I, dm, pdark=0.01, rhoflag=0, edges_num=10):
     if rhoflag:
         sigmaVal = 1 * (max(I.shape) / 2)
         Ec = 2 * gaussian_filter(I, sigma=sigmaVal)
@@ -187,10 +183,41 @@ def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
             image = image / 255.0
         return image
     
-def save_image(filename, image):
+def save_image(filename, image, depth=False):
+    if depth:
+        bits = 1
+        grayscale = True
+        if not grayscale:
+            bits = 1
+
+        if not np.isfinite(depth).all():
+            depth=np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
+            print("WARNING: Non-finite depth values present")
+
+        depth_min = image.min()
+        depth_max = image.max()
+
+        max_val = (2**(8*bits))-1
+
+        if depth_max - depth_min > np.finfo("float").eps:
+            out = max_val * (image - depth_min) / (depth_max - depth_min)
+        else:
+            out = np.zeros(image.shape, dtype=image.dtype)
+
+        if not grayscale:
+            out = cv2.applyColorMap(np.uint8(out), cv2.COLORMAP_INFERNO)
+
+        if bits == 1:
+            cv2.imwrite(filename, out.astype("uint8"))
+        elif bits == 2:
+            cv2.imwrite(filename, out.astype("uint16"))
+        # image = (image - image.min())/(image.max() - image.min())
+        # image = (image * 255).astype(np.uint8) 
+        # cv2.imwrite(filename, image)
+        return
     if np.max(image) <= 1:
-        image = image * 255.0
-    if image.shape[0] in [1,2,3]:
+        image = (image * 255).astype(np.uint8) 
+    if image.shape[0] in [1,2,3] and image.ndim >2:
         image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
     cv2.imwrite(filename, image)
 
@@ -254,16 +281,19 @@ if __name__ == "__main__":
     bs_dir = os.path.join('uw_formation', 'bs_estimation')
     depth_dir = os.path.join('uw_formation', 'depth_estimation')
     depth_gs_dir = os.path.join('uw_formation', 'depth_gs')
-    input_image_name = "0_00001"
+    input_image_name = "DSC01792"
+    ext = ".png"
     input_depth = None
-    input_image = os.path.join(whiteblancing_dir,f"{input_image_name}.png")
+    input_image = os.path.join(whiteblancing_dir,f"{input_image_name}{ext}")
     #input_depth = os.path.join(depth_dir,f"{input_image_name}_depth.png")
     #input_depth = os.path.join(depth_gs_dir,f"train_{input_image_name}_30000.png")
+    output_image_name_depth = f"{input_image_name}_depth.png"
     output_image_name_cleanbs = f"{input_image_name}_nonbs.png"
     output_image_name_bs = f"{input_image_name}_bs.png"
     #output_image_name_cleanbs = f"{input_image_name}_bs_clean.png"
     image = load_image(input_image)#load_image(input_image)
-    clean_from_bs, bs_image, bs_dict = preform_full_bs_removal(image, bs_dict=None,  return_depth=False)
+    clean_from_bs, bs_image, bs_dict, image_depth = preform_full_bs_removal(image, bs_dict=None,  return_depth=True)
+    save_image(output_image_name_depth, image_depth, depth=True)
     save_image(output_image_name_cleanbs, clean_from_bs)
     save_image(output_image_name_bs, bs_image)
     print(f'bs_dict: {bs_dict}')
