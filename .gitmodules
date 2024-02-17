@@ -1,12 +1,15 @@
 [submodule "submodules/simple-knn"]
 	path = submodules/simple-knn
 	url = https://gitlab.inria.fr/bkerbl/simple-knn.git
-[submodule "submodules/diff-gaussian-rasterization_orig"]
-	path = submodules/diff-gaussian-rasterization_orig
-	url = https://github.com/graphdeco-inria/diff-gaussian-rasterization
-[submodule "submodules/diff-gaussian-rasterization_depth"]
-	path = submodules/diff-gaussian-rasterization_depth
-	url = https://github.com/ashawkey/diff-gaussian-rasterization
+# [submodule "submodules/diff-gaussian-rasterization_orig"]
+# 	path = submodules/diff-gaussian-rasterization_orig
+# 	url = https://github.com/graphdeco-inria/diff-gaussian-rasterization
+# [submodule "submodules/diff-gaussian-rasterization_depth"]
+# 	path = submodules/diff-gaussian-rasterization_depth
+# 	url = https://github.com/ashawkey/diff-gaussian-rasterization
+[submodule "submodules/diff-gaussian-rasterization_depthUW"]
+	path = submodules/diff-gaussian-rasterization_depthUW
+	url = https://github.com/BGU-CS-VIL/diff-gaussian-rasterization_depthUW.git
 [submodule "SIBR_viewers"]
 	path = SIBR_viewers
 	url = https://gitlab.inria.fr/sibr/sibr_core.git
