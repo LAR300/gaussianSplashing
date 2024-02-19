@@ -53,6 +53,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     means3D = pc.get_xyz
     means2D = screenspace_points
     opacity = pc.get_opacity # initial opacity is (inverse_sigmoid) 0.1 (for example, for the first iteration of the optimization process)
+    
 
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
     # scaling / rotation by the rasterizer.
@@ -83,7 +84,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             dir_pp_cmed = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features_cmed.shape[0], 1))
             dir_pp_cmed_normalized = dir_pp_cmed/dir_pp_cmed.norm(dim=1, keepdim=True)
             sh2rgb_cmed = eval_sh(pc.active_sh_degree, shs_view_cmed, dir_pp_cmed_normalized)
-            cmed_precomp = torch.clamp_min(sh2rgb_cmed + 0.5, 0.0)
+            colors_precomp_cmed = torch.clamp_min(sh2rgb_cmed + 0.5, 0.0)
             # end addition uw
         else:
             shs = pc.get_features # colors are represented by SHs
@@ -92,6 +93,15 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         colors_precomp = override_color
         colors_precomp_cmed = override_color_cmed # addition uw
 
+    
+    # start addition uw
+    opm_shs_view = pc.get_opacity_med.transpose(1, 2).view(-1, 1, (pc.max_sh_degree+1)**2) # (P, 1, 16)
+    opm_dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_opacity_med.shape[0], 1))
+    opm_dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+    opm_sh2rgb = eval_sh(pc.active_sh_degree, opm_shs_view, opm_dir_pp_normalized)
+    opacitymedium_precomp = torch.clamp_min(opm_sh2rgb + 0.5, 0.0) # (P, 1, 1)
+    # end addition uw
+    
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # fowrad() returns a dictionary with the rendered image, depth and alpha,
     rendered_image, radii, rendered_depth, rendered_alpha  = rasterizer(
@@ -102,6 +112,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         # start addition uw
         shs_cmed = shs_cmed,
         colors_precomp_cmed = colors_precomp_cmed, 
+        opacities_med = opacitymedium_precomp,
         # end addition uw
         opacities = opacity,
         scales = scales,

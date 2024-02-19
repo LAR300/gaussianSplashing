@@ -48,11 +48,14 @@ class GaussianModel:
         self._features_dc = torch.empty(0)
         self._features_rest = torch.empty(0)
         # start addition uw
-        self._features_dccmed = torch.empty(0)
-        self._features_restcmed = torch.empty(0)
+        self._featurescmed_dc = torch.empty(0)
+        self._featurescmed_rest = torch.empty(0)
+        self._opacitymed_dc = torch.empty(0)
+        self._opacitymed_rest = torch.empty(0)
         # end addition uw
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
+        self._opacity = torch.empty(0)
         self._opacity = torch.empty(0)
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
@@ -69,8 +72,10 @@ class GaussianModel:
             self._features_dc,
             self._features_rest,
              # start addition uw
-            self._features_dccmed,
-            self._features_restcmed,
+            self._featurescmed_dc,
+            self._featurescmed_rest,
+            self._opacitymed_dc,
+            self._opacitymed_rest,
             # end addition uw
             self._scaling,
             self._rotation,
@@ -88,8 +93,10 @@ class GaussianModel:
         self._features_dc, 
         self._features_rest,
          # start addition uw
-        self._features_dccmed,
-        self._features_restcmed,
+        self._featurescmed_dc,
+        self._featurescmed_rest,
+        self._opacitymed_dc,
+        self._opacitymed_rest,
         # end addition uw
         self._scaling, 
         self._rotation, 
@@ -124,9 +131,15 @@ class GaussianModel:
      # start addition uw
     @property
     def get_features_cmed(self):
-        features_dccmed = self._features_dccmed
-        features_restcmed = self._features_restcmed
-        return torch.cat((features_dccmed, features_restcmed), dim=1)
+        featurescmed_dc = self._featurescmed_dc
+        featurescmed_rest = self._featurescmed_rest
+        return torch.cat((featurescmed_dc, featurescmed_rest), dim=1)
+    
+    @property
+    def get_opacity_med(self):
+        opacitymed_dc = self._opacitymed_dc
+        opacitymed_rest = self._opacitymed_rest   
+        return torch.cat((opacitymed_dc, opacitymed_rest), dim=1) # (P,16,1)
     # end addition uw
     @property
     def get_opacity(self):
@@ -138,6 +151,7 @@ class GaussianModel:
     def oneupSHdegree(self):
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
+            
     def cluster_aux(self, orig_colors):
         # cluster the points and colors
         pcds_dir = os.path.join("clustering","pcds")
@@ -178,13 +192,13 @@ class GaussianModel:
             #colors = pcd.colors
         else: # if initialization_points_option == "pointcloud":
             points = pcd.points
-            colors = pcd.colors
+            colors = pcd.colors # min=0 max=1 (P,3)
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(points)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(colors)).float().cuda())
-        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
-        features[:, :3, 0 ] = fused_color
-        features[:, 3:, 1:] = 0.0
+        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda() # (P,3,16)
+        features[:, :3, 0 ] = fused_color # (P,3,1) or (P,3), first coefficient represents the DC
+        features[:, 3:, 1:] = 0.0 # (P,0,15)
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
 
@@ -196,8 +210,8 @@ class GaussianModel:
         opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 
         self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
-        self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
-        self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (P,1,3), first coefficient represents the DC
+        self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (P,15,3), the rest of the coefficients
         self._scaling = nn.Parameter(scales.requires_grad_(True))
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
@@ -205,11 +219,18 @@ class GaussianModel:
         
         # start addition uw
         fused_colorcmed = RGB2SH(torch.tensor(np.asarray([[0.1,0.1,0.1]])).float().cuda())
-        featurecmed = torch.zeros((1, 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
-        featurecmed[:, :3, 0 ] = fused_colorcmed
-        featurecmed[:, 3:, 1:] = 0.0
-        self._features_dccmed = nn.Parameter(featurecmed[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
-        self._features_restcmed = nn.Parameter(featurecmed[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
+        featurecmed = torch.zeros((1, 3, (self.max_sh_degree + 1) ** 2)).float().cuda() # (1,3,16)
+        featurecmed[:, :3, 0 ] = fused_colorcmed # (1,3,1) or (1,3), first coefficient represents the DC
+        featurecmed[:, 3:, 1:] = 0.0 # (1,3,15)
+        self._featurescmed_dc = nn.Parameter(featurecmed[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
+        self._featurescmed_rest = nn.Parameter(featurecmed[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
+        
+        fused_opacitymed = RGB2SH(torch.tensor(np.asarray([[0.01]])).float().cuda())
+        featuresopmed = torch.zeros((fused_point_cloud.shape[0], 1, (self.max_sh_degree + 1) ** 2)).float().cuda() # (P,1,16)
+        featuresopmed[:, :1, 0 ] = fused_opacitymed # (P,1,1) or (P,1), first coefficient represents the DC
+        featuresopmed[:, 1:, 1:] = 0.0 # (P,0,15)
+        self._opacitymed_dc = nn.Parameter(featuresopmed[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (P,1,1), first coefficient represents the DC
+        self._opacitymed_rest = nn.Parameter(featuresopmed[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (P,15,1), the rest of the coefficients
         # end addition uw
 
     def training_setup(self, training_args):
@@ -222,8 +243,11 @@ class GaussianModel:
             {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
             {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
             # start addition uw
-            {'params': [self._features_dccmed], 'lr': training_args.feature_lr, "name": "f_dccmed"}, # using the same learning rate as f_dc
-            {'params': [self._features_restcmed], 'lr': training_args.feature_lr / 20.0, "name": "f_restcmed"}, # using the same learning rate as f_rest
+            {'params': [self._featurescmed_dc], 'lr': training_args.feature_lr, "name": "fcmed_dc"}, # using the same learning rate as f_dc
+            {'params': [self._featurescmed_rest], 'lr': training_args.feature_lr / 20.0, "name": "fcmed_rest"}, # using the same learning rate as f_rest
+            
+            {'params': [self._opacitymed_dc], 'lr': training_args.feature_lr, "name": "opacitymed_dc"}, # using the same learning rate as f_dc (sh representation)
+            {'params': [self._opacitymed_rest], 'lr': training_args.feature_lr / 20.0, "name": "opacitymed_rest"}, # using the same learning rate as f_rest (sh representation)
             # end addition uw
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
@@ -252,10 +276,15 @@ class GaussianModel:
         for i in range(self._features_rest.shape[1]*self._features_rest.shape[2]):
             l.append('f_rest_{}'.format(i))
         # start addition uw
-        for i in range(self._features_dccmed.shape[1]*self._features_dccmed.shape[2]):
-            l.append('f_dccmed_{}'.format())
-        for i in range(self._features_restcmed.shape[1]*self._features_restcmed.shape[2]):
-            l.append('f_restcmed_{}'.format(i))
+        for i in range(self._featurescmed_dc.shape[1]*self._featurescmed_dc.shape[2]):
+            l.append('fcmed_dc_{}'.format())
+        for i in range(self._featurescmed_rest.shape[1]*self._featurescmed_rest.shape[2]):
+            l.append('fcmed_rest_{}'.format(i))
+            
+        for i in range(self._opacitymed_dc.shape[1]*self._opacitymed_dc.shape[2]):
+            l.append('opacitymed_dc_{}'.format())
+        for i in range(self._opacitymed_rest.shape[1]*self._opacitymed_rest.shape[2]):
+            l.append('opacitymed_rest_{}'.format(i))
         # end addition uw
         l.append('opacity')
         for i in range(self._scaling.shape[1]):
@@ -272,8 +301,11 @@ class GaussianModel:
         f_dc = self._features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         # start addition uw
-        f_dccmed = self._features_dccmed.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        f_restcmed = self._features_restcmed.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        fcmed_dc = self._featurescmed_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        fcmed_rest = self._featurescmed_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        
+        opacitymed_dc = self._opacitymed_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacitymed_rest = self._opacitymed_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         # end addition uw
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
@@ -283,7 +315,7 @@ class GaussianModel:
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
         # attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1) # without uw addition
-        attributes = np.concatenate((xyz, normals, f_dc, f_rest, f_dccmed, f_restcmed, opacities, scale, rotation), axis=1) # with uw addition
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, fcmed_dc, fcmed_rest, opacitymed_dc, opacitymed_rest, opacities, scale, rotation), axis=1) # with uw addition
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(path)
@@ -292,7 +324,22 @@ class GaussianModel:
         opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
-
+    # start addition uw
+    def reset_opacity_med(self):
+        fused_opacitymed = RGB2SH(torch.tensor(np.asarray([[0.01]])).float().cuda())
+        featuresopmed = torch.zeros((self.get_xyz.shape[0], 1, (self.max_sh_degree + 1) ** 2)).float().cuda() # (P,1,16)
+        featuresopmed[:, :1, 0 ] = fused_opacitymed # (P,1,1) or (P,1), first coefficient represents the DC
+        featuresopmed[:, 1:, 1:] = 0.0 # (P,0,15)
+        _featuresopmed = torch.cat((featuresopmed[:,:,0:1].transpose(1, 2).contiguous(), featuresopmed[:,:,1:].transpose(1, 2).contiguous()), dim=1)
+        opacitymed_gath = torch.where(torch.abs(self.get_opacity_med) < torch.abs(_featuresopmed), self.get_opacity_med, _featuresopmed)
+        
+        featuresopmed_dc = opacitymed_gath[:,:1,:].transpose(1, 2).contiguous()
+        featuresopmed_rest = opacitymed_gath[:,1:,:].transpose(1, 2).contiguous()
+        optimizable_tensors = self.replace_tensor_to_optimizer(featuresopmed_dc, "opacitymed_dc")
+        self._opacitymed_dc = optimizable_tensors["opacitymed_dc"]
+        optimizable_tensors = self.replace_tensor_to_optimizer(featuresopmed_rest, "opacitymed_rest")
+        self._opacitymed_rest = optimizable_tensors["opacitymed_rest"]
+    # end addition uw
     def load_ply(self, path):
         plydata = PlyData.read(path)
 
@@ -335,11 +382,11 @@ class GaussianModel:
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
         
         # start addition uw
-        features_dccmed = np.zeros((1, 3, 1))
-        features_dccmed[:, 0, 0] = np.asarray(plydata.elements[0]["f_dccmed_0"])
-        features_dccmed[:, 1, 0] = np.asarray(plydata.elements[0]["f_dccmed_1"])
-        features_dccmed[:, 2, 0] = np.asarray(plydata.elements[0]["f_dccmed_2"])
-        extra_f_namescmed = [p.name for p in plydata.elements[0].properties if p.name.startswith("f_restcmed_")]
+        featurescmed_dc = np.zeros((1, 3, 1))
+        featurescmed_dc[:, 0, 0] = np.asarray(plydata.elements[0]["fcmed_dc_0"])
+        featurescmed_dc[:, 1, 0] = np.asarray(plydata.elements[0]["fcmed_dc_1"])
+        featurescmed_dc[:, 2, 0] = np.asarray(plydata.elements[0]["fcmed_dc_2"])
+        extra_f_namescmed = [p.name for p in plydata.elements[0].properties if p.name.startswith("fcmed_rest_")]
         extra_f_namescmed = sorted(extra_f_namescmed, key = lambda x: int(x.split('_')[-1]))
         assert len(extra_f_namescmed)==3*(self.max_sh_degree + 1) ** 2 - 3
         features_extracmed = np.zeros((1, len(extra_f_namescmed)))
@@ -347,8 +394,22 @@ class GaussianModel:
             features_extracmed[:, idx] = np.asarray(plydata.elements[0][attr_name])
         # Reshape (P,F*SH_coeffs) to (P, F, SH_coeffs except DC)
         features_extracmed = features_extracmed.reshape((features_extracmed.shape[0], 3, (self.max_sh_degree + 1) ** 2 - 1))
-        self._features_dccmed = nn.Parameter(torch.tensor(features_dccmed, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
-        self._features_restcmed = nn.Parameter(torch.tensor(features_extracmed, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+        self._featurescmed_dc = nn.Parameter(torch.tensor(featurescmed_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+        self._featurescmed_rest = nn.Parameter(torch.tensor(features_extracmed, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+        
+        
+        opacitymed_dc = np.zeros((xyz.shape[0], 3, 1))
+        opacitymed_dc[:, 0, 0] = np.asarray(plydata.elements[0]["opacitymed_dc_0"])
+        extra_omed_namescmed = [p.name for p in plydata.elements[0].properties if p.name.startswith("opacitymed_rest_")]
+        extra_omed_namescmed = sorted(extra_omed_namescmed, key = lambda x: int(x.split('_')[-1]))
+        assert len(extra_omed_namescmed)==1*(self.extra_omed_namescmed + 1) ** 2 - 1
+        omed_extra = np.zeros((1, len(extra_omed_namescmed)))
+        for idx, attr_name in enumerate(extra_f_namescmed):
+            omed_extra[:, idx] = np.asarray(plydata.elements[0][attr_name])
+        # Reshape (P,F*SH_coeffs) to (P, F, SH_coeffs except DC)
+        omed_extra = omed_extra.reshape((omed_extra.shape[0], 1, (self.max_sh_degree + 1) ** 2 - 1))
+        self._opacitymed_dc = nn.Parameter(torch.tensor(opacitymed_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+        self._opacitymed_rest = nn.Parameter(torch.tensor(omed_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
         # end addition uw
 
         self.active_sh_degree = self.max_sh_degree
@@ -394,10 +455,13 @@ class GaussianModel:
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
-        # # start addition uw
-        # self._features_dccmed = optimizable_tensors["f_dccmed"]
-        # self._features_restcmed = optimizable_tensors["f_restcmed"]
-        # # end addition uw
+        # start addition uw
+        self._featurescmed_dc = optimizable_tensors["fcmed_dc"]
+        self._featurescmed_rest = optimizable_tensors["fcmed_rest"]
+        
+        self._opacitymed_dc = optimizable_tensors["opacitymed_dc"]
+        self._opacitymed_rest = optimizable_tensors["opacitymed_rest"]
+        # end addition uw
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
@@ -431,15 +495,19 @@ class GaussianModel:
 
     def densification_postfix(self, new_xyz, 
                               new_features_dc, new_features_rest,
-                              #new_features_dccmed, new_features_restcmed, # with uw addition
+                              new_featurescmed_dc, new_featurescmed_rest, # with uw addition
+                              new_opacitymed_dc, new_opacitymed_rest,# with uw addition
                               new_opacities, new_scaling, new_rotation):
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
-        # # start addition uw
-        # "f_dccmed": new_features_dccmed,
-        # "f_restcmed": new_features_restcmed,
-        # # end addition uw
+        # start addition uw
+        "fcmed_dc": new_featurescmed_dc,
+        "fcmed_rest": new_featurescmed_rest,
+        
+        "opacitymed_dc": new_opacitymed_dc,
+        "opacitymed_rest": new_opacitymed_rest,
+        # end addition uw
         "opacity": new_opacities,
         "scaling" : new_scaling,
         "rotation" : new_rotation}
@@ -448,10 +516,13 @@ class GaussianModel:
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
-        # # start addition uw
-        # self._features_dccmed = optimizable_tensors["f_dccmed"]
-        # self._features_restcmed = optimizable_tensors["f_restcmed"]
-        # # end addition uw
+        # start addition uw
+        self._featurescmed_dc = optimizable_tensors["fcmed_dc"]
+        self._featurescmed_rest = optimizable_tensors["fcmed_rest"]
+        
+        self._opacitymed_dc = optimizable_tensors["opacitymed_dc"]
+        self._opacitymed_rest = optimizable_tensors["opacitymed_rest"]
+        # end addition uw
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
@@ -478,9 +549,17 @@ class GaussianModel:
         new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
+        # start addition uw
+        new_featurescmed_dc = self._featurescmed_dc[selected_pts_mask].repeat(N,1,1)
+        new_featurescmed_rest = self._featurescmed_rest[selected_pts_mask].repeat(N,1,1)
+        
+        new_opacitymed_dc = self._opacitymed_dc[selected_pts_mask].repeat(N,1,1)
+        new_opacitymed_rest = self._opacitymed_rest[selected_pts_mask].repeat(N,1,1)
+        # end addition uw
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation) # without uw addition
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_featurescmed_dc, new_featurescmed_rest, new_opacitymed_dc, new_opacitymed_rest, new_opacity, new_scaling, new_rotation) # with uw addition
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
@@ -494,11 +573,19 @@ class GaussianModel:
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
         new_features_rest = self._features_rest[selected_pts_mask]
+        # start addition uw
+        new_featurescmed_dc = self._featurescmed_dc[selected_pts_mask]
+        new_featurescmed_rest = self._featurescmed_rest[selected_pts_mask]
+        
+        new_opacitymed_dc = self._opacitymed_dc[selected_pts_mask]
+        new_opacitymed_rest = self._opacitymed_rest[selected_pts_mask]
+        # end addition uw
         new_opacities = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation) # without uw addition
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_featurescmed_dc, new_featurescmed_rest, new_opacitymed_dc, new_opacitymed_rest, new_opacities, new_scaling, new_rotation) # with uw addition
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
         grads = self.xyz_gradient_accum / self.denom

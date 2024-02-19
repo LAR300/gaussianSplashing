@@ -81,7 +81,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
-    # for UW processing
+    # start UW processing
     curr_bs_dict = None
     for iteration in range(first_iter, opt.iterations + 1):        
         if cfg_dot_dic.GeneralParameters.ip != "" and cfg_dot_dic.GeneralParameters.port != "":
@@ -99,7 +99,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                         break
                 except Exception as e:
                     network_gui.conn = None
-
+        # end UW processing
         iter_start.record()
 
         gaussians.update_learning_rate(iteration)
