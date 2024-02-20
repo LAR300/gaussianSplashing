@@ -97,7 +97,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # start addition uw
     opm_shs_view = pc.get_opacity_med.transpose(1, 2).view(-1, 1, (pc.max_sh_degree+1)**2) # (P, 1, 16)
     opm_dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_opacity_med.shape[0], 1))
-    opm_dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+    opm_dir_pp_normalized = opm_dir_pp/opm_dir_pp.norm(dim=1, keepdim=True)
     opm_sh2rgb = eval_sh(pc.active_sh_degree, opm_shs_view, opm_dir_pp_normalized)
     opacitymedium_precomp = torch.clamp_min(opm_sh2rgb + 0.5, 0.0) # (P, 1, 1)
     # end addition uw

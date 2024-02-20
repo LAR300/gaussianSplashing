@@ -18,3 +18,4 @@ uw_formation/depth_estimation
 uw_formation/white_balancing
 SIBR_viewers
 simple-knn
+diff-gaussian-rasterization_depthUW
