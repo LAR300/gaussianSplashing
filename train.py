@@ -117,7 +117,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         if (iteration - 1) == cfg_dot_dic.GeneralParameters.debug_from:
             pipe.debug = True
 
-        bg = torch.rand((3), device="cuda") if opt.random_background else background # [0,0,0] msot of the times
+        bg = torch.rand((3), device="cuda") if opt.random_background else background # [0,0,0] most of the times
 
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
         image, depth_map, alpha_map, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_alpha"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
