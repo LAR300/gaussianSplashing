@@ -15,7 +15,7 @@ from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianR
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, override_color_cmed = None):
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, override_color_cmed = None, uw_flag=False):
     """
     Render the scene. 
     
@@ -70,7 +70,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
     shs = None
     colors_precomp = None
-    colors_precomp_cmed = None # addition uw
+    if uw_flag:
+        colors_precomp_cmed = None # addition uw
     if override_color is None: # usually None
         if pipe.convert_SHs_python: # usually False
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
@@ -78,52 +79,84 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
             sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
             colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
-            
-            # start addition uw
-            shs_view_cmed = pc.get_features_cmed.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
-            dir_pp_cmed = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features_cmed.shape[0], 1))
-            dir_pp_cmed_normalized = dir_pp_cmed/dir_pp_cmed.norm(dim=1, keepdim=True)
-            sh2rgb_cmed = eval_sh(pc.active_sh_degree, shs_view_cmed, dir_pp_cmed_normalized)
-            colors_precomp_cmed = torch.clamp_min(sh2rgb_cmed + 0.5, 0.0)
-            # end addition uw
+            if uw_flag:
+                # start addition uw
+                shs_view_cmed = pc.get_features_cmed.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
+                dir_pp_cmed = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features_cmed.shape[0], 1))
+                dir_pp_cmed_normalized = dir_pp_cmed/dir_pp_cmed.norm(dim=1, keepdim=True)
+                sh2rgb_cmed = eval_sh(pc.active_sh_degree, shs_view_cmed, dir_pp_cmed_normalized)
+                colors_precomp_cmed = torch.clamp_min(sh2rgb_cmed + 0.5, 0.0)
+                # end addition uw
         else:
             shs = pc.get_features # colors are represented by SHs
-            shs_cmed = pc.get_features_cmed # addition uw
+            if uw_flag:
+                # start addition uw
+                shs_cmed = pc.get_features_cmed
     else:
         colors_precomp = override_color
         colors_precomp_cmed = override_color_cmed # addition uw
 
-    
-    # start addition uw
-    opm_shs_view = pc.get_opacity_med.transpose(1, 2).view(-1, 1, (pc.max_sh_degree+1)**2) # (P, 1, 16)
-    opm_dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_opacity_med.shape[0], 1))
-    opm_dir_pp_normalized = opm_dir_pp/opm_dir_pp.norm(dim=1, keepdim=True)
-    opm_sh2rgb = eval_sh(pc.active_sh_degree, opm_shs_view, opm_dir_pp_normalized)
-    opacitymedium_precomp = torch.clamp_min(opm_sh2rgb + 0.5, 0.0) # (P, 1, 1)
-    # end addition uw
+    if uw_flag:
+        # start addition uw
+        opm_shs_view = pc.get_opacity_med.transpose(1, 2).view(-1, 1, (pc.max_sh_degree+1)**2) # (P, 1, 16)
+        opm_dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_opacity_med.shape[0], 1))
+        opm_dir_pp_normalized = opm_dir_pp/opm_dir_pp.norm(dim=1, keepdim=True)
+        opm_sh2rgb = eval_sh(pc.active_sh_degree, opm_shs_view, opm_dir_pp_normalized)
+        opacitymedium_precomp = torch.clamp_min(opm_sh2rgb + 0.5, 0.0) # (P, 1, 1)
+        # end addition uw
     
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # fowrad() returns a dictionary with the rendered image, depth and alpha,
-    rendered_image, radii, rendered_depth, rendered_alpha  = rasterizer(
-        means3D = means3D,
-        means2D = means2D,
-        shs = shs,
-        colors_precomp = colors_precomp,
+    if uw_flag:
         # start addition uw
-        shs_cmed = shs_cmed,
-        colors_precomp_cmed = colors_precomp_cmed, 
-        opacities_med = opacitymedium_precomp,
+        rendered_image, radii, rendered_depth, rendered_alpha  = rasterizer(
+            means3D = means3D,
+            means2D = means2D,
+            shs = shs,
+            colors_precomp = colors_precomp,
+            # start addition uw
+            shs_cmed = shs_cmed,
+            colors_precomp_cmed = colors_precomp_cmed, 
+            opacities_med = opacitymedium_precomp,
+            # end addition uw
+            opacities = opacity,
+            scales = scales,
+            rotations = rotations,
+            cov3D_precomp = cov3D_precomp)
         # end addition uw
-        opacities = opacity,
-        scales = scales,
-        rotations = rotations,
-        cov3D_precomp = cov3D_precomp)
+    else:
+        if pipe.use_depth_rasterizer:
+            rendered_image, radii, rendered_depth, rendered_alpha  = rasterizer(
+                means3D = means3D,
+                means2D = means2D,
+                shs = shs,
+                colors_precomp = colors_precomp,
+                opacities = opacity,
+                scales = scales,
+                rotations = rotations,
+                cov3D_precomp = cov3D_precomp)
+        else:
+            rendered_image, radii= rasterizer(
+                means3D = means3D,
+                means2D = means2D,
+                shs = shs,
+                colors_precomp = colors_precomp,
+                opacities = opacity,
+                scales = scales,
+                rotations = rotations,
+                cov3D_precomp = cov3D_precomp)
 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
-    return {"render": rendered_image,
-            "rendered_depth": rendered_depth,
-            "rendered_alpha": rendered_alpha,
-            "viewspace_points": screenspace_points,
-            "visibility_filter" : radii > 0,
-            "radii": radii}
+    if pipe.use_depth_rasterizer:
+        return {"render": rendered_image,
+                "rendered_depth": rendered_depth,
+                "rendered_alpha": rendered_alpha,
+                "viewspace_points": screenspace_points,
+                "visibility_filter" : radii > 0,
+                "radii": radii}
+    else:
+        return {"render": rendered_image,
+                "viewspace_points": screenspace_points,
+                "visibility_filter" : radii > 0,
+                "radii": radii}

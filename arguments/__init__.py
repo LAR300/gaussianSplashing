@@ -119,6 +119,7 @@ class PipelineParams(ParamGroup):
     def __init__(self, parser):
         self.convert_SHs_python = False
         self.compute_cov3D_python = False
+        self.use_depth_rasterizer = False
         self.debug = False
         super().__init__(parser, "Pipeline Parameters")
 
@@ -156,7 +157,7 @@ class WandbParams(ParamGroup):
         self.wb_use_logger=False
         self.wb_project = "gaussian_splattingUW"
         self.wb_group = "GroupDebug"
-        self.wb_name = "expDebug"
+        self.wb_name = ""
         self.wb_dir = os.path.join("./logs/")
         self.wb_resume = None # "allow", "must", "never", "auto" or None
         self.wb_id = None

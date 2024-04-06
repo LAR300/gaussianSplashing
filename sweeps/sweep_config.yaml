@@ -69,6 +69,8 @@ parameters:
         values: [false]
       compute_cov3D_python:
         values: [false]
+      use_depth_rasterizer:
+          values: [false]
       debug:
         values: [false]
   WandbParameters:
