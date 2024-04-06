@@ -64,7 +64,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
     start_training = time.time()
     first_iter = 0
     prepare_output(dataset)
-    gaussians = GaussianModel(dataset.sh_degree, dataset.underwater_processing=="ON")
+    gaussians = GaussianModel(dataset.sh_degree, dataset.underwater_processing)
     scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
     if checkpoint:
@@ -92,7 +92,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     net_image_bytes = None
                     custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
                     if custom_cam != None:
-                        net_image = render(custom_cam, gaussians, pipe, background, scaling_modifer, uw_flag=dataset.underwater_processing=="ON")["render"]
+                        net_image = render(custom_cam, gaussians, pipe, background, scaling_modifer, uw_flag=dataset.underwater_processing)["render"]
                         net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
                     network_gui.send(net_image_bytes, dataset.source_path)
                     if do_training and ((iteration < int(opt.iterations)) or not keep_alive):
@@ -119,7 +119,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background # [0,0,0] most of the times
 
-        render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing=="ON")
+        render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
         if pipe.use_depth_rasterizer:
             image, depth_map, alpha_map, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_alpha"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         else:

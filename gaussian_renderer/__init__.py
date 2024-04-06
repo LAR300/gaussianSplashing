@@ -15,7 +15,7 @@ from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianR
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, override_color_cmed = None, uw_flag=False):
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, override_color_cmed = None, uw_flag="OFF"):
     """
     Render the scene. 
     
@@ -70,8 +70,12 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
     shs = None
     colors_precomp = None
-    if uw_flag:
+    if uw_flag=="ON":
         colors_precomp_cmed = None # addition uw
+    if uw_flag=="HYB":
+        direct = pc.get_direct
+        binf = pc.get_binf
+        bs = pc.get_bs
     if override_color is None: # usually None
         if pipe.convert_SHs_python: # usually False
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
@@ -79,7 +83,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
             sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
             colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
-            if uw_flag:
+            if uw_flag=="ON":
                 # start addition uw
                 shs_view_cmed = pc.get_features_cmed.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
                 dir_pp_cmed = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features_cmed.shape[0], 1))
@@ -89,14 +93,14 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
                 # end addition uw
         else:
             shs = pc.get_features # colors are represented by SHs
-            if uw_flag:
+            if uw_flag=="ON":
                 # start addition uw
                 shs_cmed = pc.get_features_cmed
     else:
         colors_precomp = override_color
         colors_precomp_cmed = override_color_cmed # addition uw
 
-    if uw_flag:
+    if uw_flag=="ON":
         # start addition uw
         opm_shs_view = pc.get_opacity_med.transpose(1, 2).view(-1, 1, (pc.max_sh_degree+1)**2) # (P, 1, 16)
         opm_dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_opacity_med.shape[0], 1))
@@ -107,7 +111,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # fowrad() returns a dictionary with the rendered image, depth and alpha,
-    if uw_flag:
+    if uw_flag=="ON":
         # start addition uw
         rendered_image, radii, rendered_depth, rendered_alpha  = rasterizer(
             means3D = means3D,
@@ -118,6 +122,23 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             shs_cmed = shs_cmed,
             colors_precomp_cmed = colors_precomp_cmed, 
             opacities_med = opacitymedium_precomp,
+            # end addition uw
+            opacities = opacity,
+            scales = scales,
+            rotations = rotations,
+            cov3D_precomp = cov3D_precomp)
+        # end addition uw
+    elif uw_flag=="HYB":
+        # start addition uw
+        rendered_image, radii, rendered_depth, rendered_alpha  = rasterizer(
+            means3D = means3D,
+            means2D = means2D,
+            shs = shs,
+            colors_precomp = colors_precomp,
+            # start addition uw
+            direct = direct,
+            binf = binf, 
+            bs = bs,
             # end addition uw
             opacities = opacity,
             scales = scales,

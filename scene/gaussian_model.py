@@ -41,7 +41,7 @@ class GaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
 
-    def __init__(self, sh_degree : int, uw_flag : bool = False):
+    def __init__(self, sh_degree : int, uw_flag : str = "OFF"):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
@@ -49,11 +49,15 @@ class GaussianModel:
         self._features_rest = torch.empty(0)
         # start addition uw
         self.uw_flag = uw_flag
-        if uw_flag:
+        if uw_flag == "ON":
             self._featurescmed_dc = torch.empty(0)
             self._featurescmed_rest = torch.empty(0)
             self._opacitymed_dc = torch.empty(0)
             self._opacitymed_rest = torch.empty(0)
+        elif uw_flag == "HYB":
+            self._direct = torch.empty(0)
+            self._binf = torch.empty(0)
+            self._bs = torch.empty(0)
         # end addition uw
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
@@ -68,7 +72,7 @@ class GaussianModel:
         self.setup_functions()
 
     def capture(self):
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             return (
             self.active_sh_degree,
             self._xyz,
@@ -79,6 +83,26 @@ class GaussianModel:
             self._featurescmed_rest,
             self._opacitymed_dc,
             self._opacitymed_rest,
+            # end addition uw
+            self._scaling,
+            self._rotation,
+            self._opacity,
+            self.max_radii2D,
+            self.xyz_gradient_accum,
+            self.denom,
+            self.optimizer.state_dict(),
+            self.spatial_lr_scale,
+        )
+        if self.uw_flag == "HYB":
+            return (
+            self.active_sh_degree,
+            self._xyz,
+            self._features_dc,
+            self._features_rest,
+             # start addition uw
+            self._direct,
+            self._binf,
+            self._bs,
             # end addition uw
             self._scaling,
             self._rotation,
@@ -107,7 +131,7 @@ class GaussianModel:
         
     
     def restore(self, model_args, training_args):
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             (self.active_sh_degree, 
             self._xyz, 
             self._features_dc, 
@@ -117,6 +141,24 @@ class GaussianModel:
             self._featurescmed_rest,
             self._opacitymed_dc,
             self._opacitymed_rest,
+            # end addition uw
+            self._scaling, 
+            self._rotation, 
+            self._opacity,
+            self.max_radii2D, 
+            xyz_gradient_accum, 
+            denom,
+            opt_dict, 
+            self.spatial_lr_scale) = model_args
+        if self.uw_flag == "HYB":
+            (self.active_sh_degree, 
+            self._xyz, 
+            self._features_dc, 
+            self._features_rest,
+            # start addition uw
+            self._direct,
+            self._binf,
+            self._bs,
             # end addition uw
             self._scaling, 
             self._rotation, 
@@ -173,6 +215,18 @@ class GaussianModel:
         opacitymed_dc = self._opacitymed_dc
         opacitymed_rest = self._opacitymed_rest   
         return torch.cat((opacitymed_dc, opacitymed_rest), dim=1) # (P,16,1)
+    @property
+    def get_direct(self):
+        direct = self._direct
+        return direct 
+    @property
+    def get_binf(self):
+        binf = self._binf
+        return binf 
+    @property
+    def get_bs(self):
+        bs = self._bs
+        return bs 
     # end addition uw
     @property
     def get_opacity(self):
@@ -249,7 +303,7 @@ class GaussianModel:
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             # start addition uw
             fused_colorcmed = RGB2SH(torch.tensor(np.asarray([[0.1,0.1,0.1]])).float().cuda())
             featurecmed = torch.zeros((1, 3, (self.max_sh_degree + 1) ** 2)).float().cuda() # (1,3,16)
@@ -265,12 +319,19 @@ class GaussianModel:
             self._opacitymed_dc = nn.Parameter(featuresopmed[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (P,1,1), first coefficient represents the DC
             self._opacitymed_rest = nn.Parameter(featuresopmed[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (P,15,1), the rest of the coefficients
             # end addition uw
+        
+        elif self.uw_flag == "HYB":
+            # start addition uw
+            self._direct = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 1), device="cuda").contiguous().requires_grad_(True))
+            self._binf = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 3), device="cuda").contiguous().requires_grad_(True))
+            self._bs = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 1), device="cuda").contiguous().requires_grad_(True))
+            # end addition uw
 
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             l = [
                 {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
                 {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
@@ -281,6 +342,20 @@ class GaussianModel:
                 
                 {'params': [self._opacitymed_dc], 'lr': training_args.feature_lr, "name": "opacitymed_dc"}, # using the same learning rate as f_dc (sh representation)
                 {'params': [self._opacitymed_rest], 'lr': training_args.feature_lr / 20.0, "name": "opacitymed_rest"}, # using the same learning rate as f_rest (sh representation)
+                # end addition uw
+                {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
+                {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
+                {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
+            ]
+        elif self.uw_flag == "HYB":
+            l = [
+                {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
+                {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
+                {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
+                # start addition uw
+                {'params': [self._direct], 'lr': training_args.feature_lr, "name": "direct"}, # using the same learning rate 
+                {'params': [self._binf], 'lr': training_args.feature_lr , "name": "binf"}, # using the same learning rate 
+                {'params': [self._bs], 'lr': training_args.feature_lr, "name": "bs"}, # using the same learning rate 
                 # end addition uw
                 {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
                 {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
@@ -317,7 +392,7 @@ class GaussianModel:
             l.append('f_dc_{}'.format(i))
         for i in range(self._features_rest.shape[1]*self._features_rest.shape[2]):
             l.append('f_rest_{}'.format(i))
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             # start addition uw
             for i in range(self._featurescmed_dc.shape[1]*self._featurescmed_dc.shape[2]):
                 l.append('fcmed_dc_{}'.format())
@@ -328,6 +403,15 @@ class GaussianModel:
                 l.append('opacitymed_dc_{}'.format())
             for i in range(self._opacitymed_rest.shape[1]*self._opacitymed_rest.shape[2]):
                 l.append('opacitymed_rest_{}'.format(i))
+            # end addition uw
+        elif self.uw_flag == "HYB":
+            # start addition uw
+            for i in range(self._direct.shape[1]):
+                l.append('direct_{}'.format(i))
+            for i in range(self._binf.shape[1]):
+                l.append('binf_{}'.format(i))
+            for i in range(self._bs.shape[1]):
+                l.append('bs_{}'.format(i))
             # end addition uw
         l.append('opacity')
         for i in range(self._scaling.shape[1]):
@@ -343,13 +427,19 @@ class GaussianModel:
         normals = np.zeros_like(xyz)
         f_dc = self._features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             # start addition uw
             fcmed_dc = self._featurescmed_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
             fcmed_rest = self._featurescmed_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
             
             opacitymed_dc = self._opacitymed_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
             opacitymed_rest = self._opacitymed_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+            # end addition uw
+        elif self.uw_flag == "HYB":
+            # start addition uw
+            direct = self._direct.detach().cpu().numpy()
+            binf = self._binf.detach().cpu().numpy()
+            bs = self._bs.detach().cpu().numpy()
             # end addition uw
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
@@ -358,8 +448,10 @@ class GaussianModel:
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             attributes = np.concatenate((xyz, normals, f_dc, f_rest, fcmed_dc, fcmed_rest, opacitymed_dc, opacitymed_rest, opacities, scale, rotation), axis=1) # with uw addition
+        elif self.uw_flag == "HYB":
+            attributes = np.concatenate((xyz, normals, f_dc, f_rest, direct, binf, bs, opacities, scale, rotation), axis=1) # with uw addition
         else:
             attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1) # without uw addition
         
@@ -386,6 +478,14 @@ class GaussianModel:
         self._opacitymed_dc = optimizable_tensors["opacitymed_dc"]
         optimizable_tensors = self.replace_tensor_to_optimizer(featuresopmed_rest, "opacitymed_rest")
         self._opacitymed_rest = optimizable_tensors["opacitymed_rest"]
+    def reset_hyb(self):
+        direct_new = torch.min(self.get_direct, torch.ones_like(self.get_direct)*0.01)
+        optimizable_tensors = self.replace_tensor_to_optimizer(direct_new, "direct")
+        bs_new = torch.min(self.get_bs, torch.ones_like(self.get_bs)*0.01)
+        optimizable_tensors = self.replace_tensor_to_optimizer(bs_new, "bs")
+        
+        self._direct = optimizable_tensors["direct"]
+        self._bs = optimizable_tensors["bs"]
     # end addition uw
     def load_ply(self, path):
         plydata = PlyData.read(path)
@@ -427,7 +527,7 @@ class GaussianModel:
         self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
         self._scaling = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             # start addition uw
             featurescmed_dc = np.zeros((1, 3, 1))
             featurescmed_dc[:, 0, 0] = np.asarray(plydata.elements[0]["fcmed_dc_0"])
@@ -458,7 +558,15 @@ class GaussianModel:
             self._opacitymed_dc = nn.Parameter(torch.tensor(opacitymed_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
             self._opacitymed_rest = nn.Parameter(torch.tensor(omed_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
             # end addition uw
-
+        elif self.uw_flag == "HYB":
+            # start addition uw
+            dierct = np.asarray(plydata.elements[0]["direct"])[..., np.newaxis]
+            binf = np.asarray(plydata.elements[0]["binf"])[..., np.newaxis]
+            bs = np.asarray(plydata.elements[0]["bs"])[..., np.newaxis]
+            self._direct = nn.Parameter(torch.tensor(dierct, dtype=torch.float, device="cuda").requires_grad_(True))
+            self._binf = nn.Parameter(torch.tensor(binf, dtype=torch.float, device="cuda").requires_grad_(True))
+            self._bs = nn.Parameter(torch.tensor(bs, dtype=torch.float, device="cuda").requires_grad_(True))
+            # end addition uw
         self.active_sh_degree = self.max_sh_degree
 
     def replace_tensor_to_optimizer(self, tensor, name):
@@ -502,13 +610,19 @@ class GaussianModel:
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             # start addition uw
             self._featurescmed_dc = optimizable_tensors["fcmed_dc"]
             self._featurescmed_rest = optimizable_tensors["fcmed_rest"]
             
             self._opacitymed_dc = optimizable_tensors["opacitymed_dc"]
             self._opacitymed_rest = optimizable_tensors["opacitymed_rest"]
+            # end addition uw
+        if self.uw_flag == "HYB":
+            # start addition uw
+            self._direct = optimizable_tensors["direct"]
+            self._binf = optimizable_tensors["binf"]
+            self._bs = optimizable_tensors["bs"]
             # end addition uw
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
@@ -600,6 +714,40 @@ class GaussianModel:
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
     # end addition uw
+    # start addition uw
+    def densification_postfix_uwhyb(self, new_xyz, 
+                              new_features_dc, new_features_rest,
+                              new_direct, new_bs, # with uw addition
+                              new_opacities, new_scaling, new_rotation):
+        d = {"xyz": new_xyz,
+        "f_dc": new_features_dc,
+        "f_rest": new_features_rest,
+        # start addition uw
+        "direct": new_direct,
+        #"binf": new_binf,
+        "bs": new_bs,
+        # end addition uw
+        "opacity": new_opacities,
+        "scaling" : new_scaling,
+        "rotation" : new_rotation}
+
+        optimizable_tensors = self.cat_tensors_to_optimizer(d)
+        self._xyz = optimizable_tensors["xyz"]
+        self._features_dc = optimizable_tensors["f_dc"]
+        self._features_rest = optimizable_tensors["f_rest"]
+        # start addition uw
+        self._direct = optimizable_tensors["direct"]
+        #self._binf = optimizable_tensors["binf"]
+        self._bs = optimizable_tensors["bs"]
+        # end addition uw
+        self._opacity = optimizable_tensors["opacity"]
+        self._scaling = optimizable_tensors["scaling"]
+        self._rotation = optimizable_tensors["rotation"]
+
+        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+    # end addition uw
     
     def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
         n_init_points = self.get_xyz.shape[0]
@@ -619,7 +767,7 @@ class GaussianModel:
         new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             # start addition uw
             new_featurescmed_dc = self._featurescmed_dc[selected_pts_mask].repeat(N,1,1)
             new_featurescmed_rest = self._featurescmed_rest[selected_pts_mask].repeat(N,1,1)
@@ -627,11 +775,19 @@ class GaussianModel:
             new_opacitymed_dc = self._opacitymed_dc[selected_pts_mask].repeat(N,1,1)
             new_opacitymed_rest = self._opacitymed_rest[selected_pts_mask].repeat(N,1,1)
             # end addition uw
+        elif self.uw_flag == "HYB":
+            # start addition uw
+            new_direct = self._direct[selected_pts_mask].repeat(N,1)
+            #new_binf = self._binf[selected_pts_mask].repeat(N,1,1)
+            new_bs = self._bs[selected_pts_mask].repeat(N,1)
+            # end addition uw
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
 
         
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             self.densification_postfix_uw(new_xyz, new_features_dc, new_features_rest, new_featurescmed_dc, new_featurescmed_rest, new_opacitymed_dc, new_opacitymed_rest, new_opacity, new_scaling, new_rotation) # with uw addition
+        elif self.uw_flag == "HYB":
+            self.densification_postfix_uwhyb(new_xyz, new_features_dc, new_features_rest, new_direct, new_bs, new_opacity, new_scaling, new_rotation) # with uw addition
         else:
             self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation) # without uw addition
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
@@ -646,7 +802,7 @@ class GaussianModel:
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
         new_features_rest = self._features_rest[selected_pts_mask]
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             # start addition uw
             #new_featurescmed_dc = self._featurescmed_dc[selected_pts_mask]
             new_featurescmed_dc = self._featurescmed_dc
@@ -656,12 +812,20 @@ class GaussianModel:
             new_opacitymed_dc = self._opacitymed_dc[selected_pts_mask]
             new_opacitymed_rest = self._opacitymed_rest[selected_pts_mask]
             # end addition uw
+        elif self.uw_flag == "HYB":
+            # start addition uw
+            new_direct = self._direct[selected_pts_mask]
+            new_binf = self._binf
+            new_bs = self._bs[selected_pts_mask]
+            # end addition uw
         new_opacities = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
 
-        if self.uw_flag:
+        if self.uw_flag == "ON":
             self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_featurescmed_dc, new_featurescmed_rest, new_opacitymed_dc, new_opacitymed_rest, new_opacities, new_scaling, new_rotation) # with uw addition
+        elif self.uw_flag == "HYB":
+            self.densification_postfix_uwhyb(new_xyz, new_features_dc, new_features_rest, new_direct, new_bs, new_opacities, new_scaling, new_rotation) # with uw addition
         else:
             self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation) # without uw addition
         
