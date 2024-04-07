@@ -322,9 +322,9 @@ class GaussianModel:
         
         elif self.uw_flag == "HYB":
             # start addition uw
-            self._direct = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 1), device="cuda").contiguous().requires_grad_(True))
-            self._binf = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 3), device="cuda").contiguous().requires_grad_(True))
-            self._bs = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 1), device="cuda").contiguous().requires_grad_(True))
+            self._direct = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 3), device="cuda").contiguous().requires_grad_(True)) # (P,3)
+            self._binf = nn.Parameter(torch.zeros((3), device="cuda").contiguous().requires_grad_(True)) # (3)
+            self._bs = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 3), device="cuda").contiguous().requires_grad_(True)) # (P,3)
             # end addition uw
 
     def training_setup(self, training_args):
