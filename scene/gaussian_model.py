@@ -323,7 +323,7 @@ class GaussianModel:
         elif self.uw_flag == "HYB":
             # start addition uw
             self._direct = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 3), device="cuda").contiguous().requires_grad_(True)) # (P,3)
-            self._binf = nn.Parameter(torch.zeros((3), device="cuda").contiguous().requires_grad_(True)) # (3)
+            self._binf = nn.Parameter(torch.zeros((1, 3), device="cuda").contiguous().requires_grad_(True)) # (1, 3)
             self._bs = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 3), device="cuda").contiguous().requires_grad_(True)) # (P,3)
             # end addition uw
 
@@ -451,7 +451,7 @@ class GaussianModel:
         if self.uw_flag == "ON":
             attributes = np.concatenate((xyz, normals, f_dc, f_rest, fcmed_dc, fcmed_rest, opacitymed_dc, opacitymed_rest, opacities, scale, rotation), axis=1) # with uw addition
         elif self.uw_flag == "HYB":
-            attributes = np.concatenate((xyz, normals, f_dc, f_rest, direct, binf, bs, opacities, scale, rotation), axis=1) # with uw addition
+            attributes = np.concatenate((xyz, normals, f_dc, f_rest, direct, np.broadcast_to(binf, (xyz.shape[0],) + binf.shape[1:]), bs, opacities, scale, rotation), axis=1) # with uw addition
         else:
             attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1) # without uw addition
         
@@ -588,6 +588,8 @@ class GaussianModel:
     def _prune_optimizer(self, mask):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
+            if group["name"] == "binf": # binf is a general parameter
+                continue
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
                 stored_state["exp_avg"] = stored_state["exp_avg"][mask]
@@ -621,7 +623,7 @@ class GaussianModel:
         if self.uw_flag == "HYB":
             # start addition uw
             self._direct = optimizable_tensors["direct"]
-            self._binf = optimizable_tensors["binf"]
+            # self._binf = optimizable_tensors["binf"]
             self._bs = optimizable_tensors["bs"]
             # end addition uw
         self._opacity = optimizable_tensors["opacity"]
@@ -637,6 +639,10 @@ class GaussianModel:
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             assert len(group["params"]) == 1
+
+            if group["name"] == "binf": # binf is a general parameter
+                continue
+            
             extension_tensor = tensors_dict[group["name"]]
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
@@ -778,7 +784,7 @@ class GaussianModel:
         elif self.uw_flag == "HYB":
             # start addition uw
             new_direct = self._direct[selected_pts_mask].repeat(N,1)
-            #new_binf = self._binf[selected_pts_mask].repeat(N,1,1)
+            #new_binf = self._binf
             new_bs = self._bs[selected_pts_mask].repeat(N,1)
             # end addition uw
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
@@ -815,7 +821,7 @@ class GaussianModel:
         elif self.uw_flag == "HYB":
             # start addition uw
             new_direct = self._direct[selected_pts_mask]
-            new_binf = self._binf
+            #new_binf = self._binf
             new_bs = self._bs[selected_pts_mask]
             # end addition uw
         new_opacities = self._opacity[selected_pts_mask]

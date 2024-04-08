@@ -92,7 +92,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     net_image_bytes = None
                     custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
                     if custom_cam != None:
-                        net_image = render(custom_cam, gaussians, pipe, background, scaling_modifer, uw_flag=dataset.underwater_processing)["render"]
+                        net_image = render(custom_cam, gaussians, pipe, background,  uw_flag=dataset.underwater_processing, scaling_modifier=scaling_modifer)["render"]
                         net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
                     network_gui.send(net_image_bytes, dataset.source_path)
                     if do_training and ((iteration < int(opt.iterations)) or not keep_alive):
@@ -193,7 +193,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             # Log and save
             training_report(iteration, Ll1, loss, l1_loss,
                             Ll2, l2_loss, Psnr,
-                            iter_start.elapsed_time(iter_end), cfg_dot_dic.GeneralParameters.test_iterations, scene, render, (pipe, background),
+                            iter_start.elapsed_time(iter_end), cfg_dot_dic.GeneralParameters.test_iterations, scene, render, (pipe, bg, dataset.underwater_processing),
                             (dataset.underwater_processing=="ON",uw), curr_bs_dict, pipe=pipe)
             if (iteration in cfg_dot_dic.GeneralParameters.save_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
