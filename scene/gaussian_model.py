@@ -464,6 +464,12 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
     # start addition uw
+    def enforce_constraints_hyb(self, direct_range=(0.001,0.1), binf_range=(0.05,0.5), bs_range=(0.001,0.1)):
+        self._direct.data.clamp_(direct_range[0], direct_range[1])
+        self._binf.data.clamp_(binf_range[0], binf_range[1])
+        self._bs.data.clamp_(bs_range[0], bs_range[1])
+        
+    
     def reset_opacity_med(self):
         fused_opacitymed = RGB2SH(torch.tensor(np.asarray([[0.01]])).float().cuda())
         featuresopmed = torch.zeros((self.get_xyz.shape[0], 1, (self.max_sh_degree + 1) ** 2)).float().cuda() # (P,1,16)
