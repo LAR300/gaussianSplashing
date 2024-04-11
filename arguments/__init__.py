@@ -166,7 +166,7 @@ class WandbParams(ParamGroup):
 def add_general_params(parser):
     # Add General Parameters
     group_general_args = parser.add_argument_group("General Parameters")
-    group_general_args.add_argument('--ip', type=str, default="127.0.0.1")
+    group_general_args.add_argument('--ip', type=str, default="")#default="127.0.0.1")
     group_general_args.add_argument('--port', type=int, default=8888)
     group_general_args.add_argument('--debug_from', type=int, default=-1)
     group_general_args.add_argument('--detect_anomaly', action='store_true', default=False)

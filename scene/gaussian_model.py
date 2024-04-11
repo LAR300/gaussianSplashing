@@ -57,6 +57,8 @@ class GaussianModel:
         elif uw_flag == "HYB":
             self._direct = torch.empty(0)
             self._binf = torch.empty(0)
+            # self._featuresbinf_dc = torch.empty(0)
+            # self._featuresbinf_rest = torch.empty(0)
             self._bs = torch.empty(0)
         # end addition uw
         self._scaling = torch.empty(0)
@@ -223,6 +225,11 @@ class GaussianModel:
     def get_binf(self):
         binf = self._binf
         return binf 
+    # @property
+    # def get_featuresbinf(self):
+    #     featuresbinf_dc = self._featuresbinf_dc
+    #     featuresbinf_rest = self._featuresbinf_rest
+    #     return torch.cat((featuresbinf_dc, featuresbinf_rest), dim=1)
     @property
     def get_bs(self):
         bs = self._bs
@@ -322,9 +329,17 @@ class GaussianModel:
         
         elif self.uw_flag == "HYB":
             # start addition uw
-            self._direct = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 3), device="cuda").contiguous().requires_grad_(True)) # (P,3)
+            self._direct = nn.Parameter(torch.zeros((1, 3), device="cuda").contiguous().requires_grad_(True)) # (1,3)
             self._binf = nn.Parameter(torch.zeros((1, 3), device="cuda").contiguous().requires_grad_(True)) # (1, 3)
-            self._bs = nn.Parameter(torch.zeros((fused_point_cloud.shape[0], 3), device="cuda").contiguous().requires_grad_(True)) # (P,3)
+            
+            # fused_binf = RGB2SH(torch.tensor(np.asarray([[0.01,0.01,0.01]])).float().cuda())
+            # featuresbinf = torch.zeros((1, 3, (self.max_sh_degree + 1) ** 2)).float().cuda() # (1,3,16)
+            # featuresbinf[:, :3, 0 ] = fused_binf # (1,3,1) or (1,3), first coefficient represents the DC
+            # featuresbinf[:, 3:, 1:] = 0.0 # (1,3,15)
+            # self._featuresbinf_dc = nn.Parameter(featuresbinf[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
+            # self._featuresbinf_rest = nn.Parameter(featuresbinf[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
+            
+            self._bs = nn.Parameter(torch.zeros((1, 3), device="cuda").contiguous().requires_grad_(True)) # (1,3)
             # end addition uw
 
     def training_setup(self, training_args):
@@ -404,15 +419,15 @@ class GaussianModel:
             for i in range(self._opacitymed_rest.shape[1]*self._opacitymed_rest.shape[2]):
                 l.append('opacitymed_rest_{}'.format(i))
             # end addition uw
-        elif self.uw_flag == "HYB":
-            # start addition uw
-            for i in range(self._direct.shape[1]):
-                l.append('direct_{}'.format(i))
-            for i in range(self._binf.shape[1]):
-                l.append('binf_{}'.format(i))
-            for i in range(self._bs.shape[1]):
-                l.append('bs_{}'.format(i))
-            # end addition uw
+        # elif self.uw_flag == "HYB":
+        #     # start addition uw
+        #     for i in range(self._direct.shape[1]):
+        #         l.append('direct_{}'.format(i))
+        #     for i in range(self._binf.shape[1]):
+        #         l.append('binf_{}'.format(i))
+        #     for i in range(self._bs.shape[1]):
+        #         l.append('bs_{}'.format(i))
+        #     # end addition uw
         l.append('opacity')
         for i in range(self._scaling.shape[1]):
             l.append('scale_{}'.format(i))
@@ -451,7 +466,8 @@ class GaussianModel:
         if self.uw_flag == "ON":
             attributes = np.concatenate((xyz, normals, f_dc, f_rest, fcmed_dc, fcmed_rest, opacitymed_dc, opacitymed_rest, opacities, scale, rotation), axis=1) # with uw addition
         elif self.uw_flag == "HYB":
-            attributes = np.concatenate((xyz, normals, f_dc, f_rest, direct, np.broadcast_to(binf, (xyz.shape[0],) + binf.shape[1:]), bs, opacities, scale, rotation), axis=1) # with uw addition
+            attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1) # without uw addition
+            #attributes = np.concatenate((xyz, normals, f_dc, f_rest, direct, np.broadcast_to(binf, (xyz.shape[0],) + binf.shape[1:]), bs, opacities, scale, rotation), axis=1) # with uw addition
         else:
             attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1) # without uw addition
         
@@ -464,7 +480,7 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
     # start addition uw
-    def enforce_constraints_hyb(self, direct_range=(0.001,0.1), binf_range=(0.05,0.5), bs_range=(0.001,0.1)):
+    def enforce_constraints_hyb(self, direct_range=(0.01,1), binf_range=(0.05,0.8), bs_range=(0.01,1)):
         self._direct.data.clamp_(direct_range[0], direct_range[1])
         self._binf.data.clamp_(binf_range[0], binf_range[1])
         self._bs.data.clamp_(bs_range[0], bs_range[1])
@@ -566,10 +582,10 @@ class GaussianModel:
             # end addition uw
         elif self.uw_flag == "HYB":
             # start addition uw
-            dierct = np.asarray(plydata.elements[0]["direct"])[..., np.newaxis]
+            direct = np.asarray(plydata.elements[0]["direct"])[..., np.newaxis]
             binf = np.asarray(plydata.elements[0]["binf"])[..., np.newaxis]
             bs = np.asarray(plydata.elements[0]["bs"])[..., np.newaxis]
-            self._direct = nn.Parameter(torch.tensor(dierct, dtype=torch.float, device="cuda").requires_grad_(True))
+            self._direct = nn.Parameter(torch.tensor(direct, dtype=torch.float, device="cuda").requires_grad_(True))
             self._binf = nn.Parameter(torch.tensor(binf, dtype=torch.float, device="cuda").requires_grad_(True))
             self._bs = nn.Parameter(torch.tensor(bs, dtype=torch.float, device="cuda").requires_grad_(True))
             # end addition uw
@@ -594,7 +610,7 @@ class GaussianModel:
     def _prune_optimizer(self, mask):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
-            if group["name"] == "binf": # binf is a general parameter
+            if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs": # binf is a general parameter
                 continue
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
@@ -626,12 +642,12 @@ class GaussianModel:
             self._opacitymed_dc = optimizable_tensors["opacitymed_dc"]
             self._opacitymed_rest = optimizable_tensors["opacitymed_rest"]
             # end addition uw
-        if self.uw_flag == "HYB":
-            # start addition uw
-            self._direct = optimizable_tensors["direct"]
-            # self._binf = optimizable_tensors["binf"]
-            self._bs = optimizable_tensors["bs"]
-            # end addition uw
+        # if self.uw_flag == "HYB":
+        #     # start addition uw
+        #     #self._direct = optimizable_tensors["direct"]
+        #     # self._binf = optimizable_tensors["binf"]
+        #     #self._bs = optimizable_tensors["bs"]
+        #     # end addition uw
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
@@ -646,7 +662,7 @@ class GaussianModel:
         for group in self.optimizer.param_groups:
             assert len(group["params"]) == 1
 
-            if group["name"] == "binf": # binf is a general parameter
+            if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs": # binf is a general parameter
                 continue
             
             extension_tensor = tensors_dict[group["name"]]
@@ -729,15 +745,14 @@ class GaussianModel:
     # start addition uw
     def densification_postfix_uwhyb(self, new_xyz, 
                               new_features_dc, new_features_rest,
-                              new_direct, new_bs, # with uw addition
                               new_opacities, new_scaling, new_rotation):
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
         # start addition uw
-        "direct": new_direct,
+        #"direct": new_direct,
         #"binf": new_binf,
-        "bs": new_bs,
+        #"bs": new_bs,
         # end addition uw
         "opacity": new_opacities,
         "scaling" : new_scaling,
@@ -748,9 +763,9 @@ class GaussianModel:
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
         # start addition uw
-        self._direct = optimizable_tensors["direct"]
+        #self._direct = optimizable_tensors["direct"]
         #self._binf = optimizable_tensors["binf"]
-        self._bs = optimizable_tensors["bs"]
+        #self._bs = optimizable_tensors["bs"]
         # end addition uw
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
@@ -787,19 +802,19 @@ class GaussianModel:
             new_opacitymed_dc = self._opacitymed_dc[selected_pts_mask].repeat(N,1,1)
             new_opacitymed_rest = self._opacitymed_rest[selected_pts_mask].repeat(N,1,1)
             # end addition uw
-        elif self.uw_flag == "HYB":
-            # start addition uw
-            new_direct = self._direct[selected_pts_mask].repeat(N,1)
-            #new_binf = self._binf
-            new_bs = self._bs[selected_pts_mask].repeat(N,1)
-            # end addition uw
+        # elif self.uw_flag == "HYB":
+        #     # start addition uw
+        #     new_direct = self._direct[selected_pts_mask].repeat(N,1)
+        #     #new_binf = self._binf
+        #     new_bs = self._bs[selected_pts_mask].repeat(N,1)
+        #     # end addition uw
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
 
         
         if self.uw_flag == "ON":
             self.densification_postfix_uw(new_xyz, new_features_dc, new_features_rest, new_featurescmed_dc, new_featurescmed_rest, new_opacitymed_dc, new_opacitymed_rest, new_opacity, new_scaling, new_rotation) # with uw addition
         elif self.uw_flag == "HYB":
-            self.densification_postfix_uwhyb(new_xyz, new_features_dc, new_features_rest, new_direct, new_bs, new_opacity, new_scaling, new_rotation) # with uw addition
+            self.densification_postfix_uwhyb(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation) # with uw addition
         else:
             self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation) # without uw addition
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
@@ -824,12 +839,12 @@ class GaussianModel:
             new_opacitymed_dc = self._opacitymed_dc[selected_pts_mask]
             new_opacitymed_rest = self._opacitymed_rest[selected_pts_mask]
             # end addition uw
-        elif self.uw_flag == "HYB":
-            # start addition uw
-            new_direct = self._direct[selected_pts_mask]
-            #new_binf = self._binf
-            new_bs = self._bs[selected_pts_mask]
-            # end addition uw
+        # elif self.uw_flag == "HYB":
+        #     # start addition uw
+        #     new_direct = self._direct[selected_pts_mask]
+        #     #new_binf = self._binf
+        #     new_bs = self._bs[selected_pts_mask]
+        #     # end addition uw
         new_opacities = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
@@ -837,7 +852,7 @@ class GaussianModel:
         if self.uw_flag == "ON":
             self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_featurescmed_dc, new_featurescmed_rest, new_opacitymed_dc, new_opacitymed_rest, new_opacities, new_scaling, new_rotation) # with uw addition
         elif self.uw_flag == "HYB":
-            self.densification_postfix_uwhyb(new_xyz, new_features_dc, new_features_rest, new_direct, new_bs, new_opacities, new_scaling, new_rotation) # with uw addition
+            self.densification_postfix_uwhyb(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation) # with uw addition
         else:
             self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation) # without uw addition
         

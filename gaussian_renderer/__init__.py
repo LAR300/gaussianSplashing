@@ -130,7 +130,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         # end addition uw
     elif uw_flag=="HYB":
         # start addition uw
-        rendered_image, radii = rasterizer(
+        rendered_image, radii, rendered_depth = rasterizer(
             means3D = means3D,
             means2D = means2D,
             shs = shs,
@@ -178,6 +178,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
                 "radii": radii}
     else:
         return {"render": rendered_image,
+                "rendered_depth": rendered_depth,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii}
