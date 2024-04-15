@@ -49,7 +49,7 @@ def train_sweep(namespace_dict=None, sweep_train_flag=True):
     safe_state(cfg_dot_dic.GeneralParameters.quiet)
 
     # Start GUI server, configure and run training
-    if cfg_dot_dic.GeneralParameters.ip != "" and cfg_dot_dic.GeneralParameters.port != "":
+    if cfg_dot_dic.GeneralParameters.ip != "0" and cfg_dot_dic.GeneralParameters.port != -1:
         network_gui.init(cfg_dot_dic.GeneralParameters.ip, cfg_dot_dic.GeneralParameters.port)
     torch.autograd.set_detect_anomaly(cfg_dot_dic.GeneralParameters.detect_anomaly)
     
@@ -59,6 +59,15 @@ def train_sweep(namespace_dict=None, sweep_train_flag=True):
     print("Training complete.")
     print(f"Training execution time: {int(training_miutes)} minutes {training_seconds:.2f} seconds")
     
+def loss_func(image, gt_image, opt):
+    # Loss
+    Ll1 = l1_loss(image, gt_image)
+    Ll2 = l2_loss(image, gt_image).detach()
+    Psnr = psnr(image, gt_image).mean().double().detach()
+    loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+    return loss, Ll1, Ll2, Psnr
+
+
 def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_flag=False):
     
     start_training = time.time()
@@ -83,8 +92,9 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
     first_iter += 1
     # start UW processing
     curr_bs_dict = None
+    uw_additions = {}
     for iteration in range(first_iter, opt.iterations + 1):        
-        if cfg_dot_dic.GeneralParameters.ip != "" and cfg_dot_dic.GeneralParameters.port != "":
+        if cfg_dot_dic.GeneralParameters.ip != "0" and cfg_dot_dic.GeneralParameters.port != -1:
             if network_gui.conn == None:
                 network_gui.try_connect()
             while network_gui.conn != None:
@@ -120,12 +130,15 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         bg = torch.rand((3), device="cuda") if opt.random_background else background # [0,0,0] most of the times
 
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
-        if pipe.use_depth_rasterizer:
+        if dataset.underwater_processing=="ON" and pipe.use_depth_rasterizer:
             image, depth_map, alpha_map, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_alpha"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        elif dataset.underwater_processing=="HYB":
+             image, depth_map, rendered_J, rendered_backscattering, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_J"], render_pkg["rendered_backscattering"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+             uw_additions["direct"], uw_additions["binf"], uw_additions["bs"] = render_pkg["direct"], render_pkg["binf"], render_pkg["bs"]
         else:
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         # Underwater backscatter removal
-        if dataset.underwater_processing=="ON":
+        if dataset.underwater_processing=="HYB":
             
             if uw.remove_bs_from_images:
                 if uw.removal_using_monocular_depth:
@@ -173,10 +186,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         else:
             gt_image = viewpoint_cam.original_image.cuda()
         # Loss
-        Ll1 = l1_loss(image, gt_image)
-        Ll2 = l2_loss(image, gt_image).detach()
-        Psnr = psnr(image, gt_image).mean().double().detach()
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        loss, Ll1, Ll2, Psnr = loss_func(image, gt_image, opt)
         loss.backward()
 
         iter_end.record()
@@ -194,7 +204,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             training_report(iteration, Ll1, loss, l1_loss,
                             Ll2, l2_loss, Psnr,
                             iter_start.elapsed_time(iter_end), cfg_dot_dic.GeneralParameters.test_iterations, scene, render, (pipe, bg, dataset.underwater_processing),
-                            (dataset.underwater_processing=="ON",uw), curr_bs_dict, pipe=pipe)
+                            (dataset.underwater_processing=="HYB",uw, uw_additions), curr_bs_dict)
             if (iteration in cfg_dot_dic.GeneralParameters.save_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -217,7 +227,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
                 if dataset.underwater_processing == "HYB":
-                    gaussians.enforce_constraints_hyb()
+                    gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_l, uw.exp_range_h), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_l, uw.exp_range_h))
 
             if (iteration in cfg_dot_dic.GeneralParameters.checkpoint_iterations and not sweep_train_flag):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
@@ -247,7 +257,7 @@ def prepare_output_end(cfg_dot_dic, minutes, seconds, sweep_train_flag=False):
 def training_report(iteration, Ll1, loss, l1_loss,
                     Ll2, l2_loss, Psnr,
                     elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs,
-                    uw_tuple=(False,None), curr_bs_dict=None, pipe=None):
+                    uw_tuple=(False,None, None), curr_bs_dict=None):
 
     if wandb.run is not None:
         wandb.run.log(data={'train_loss_patches/l1_loss': Ll1.item(), 'train_loss_patches/total_loss': loss.item(),
@@ -272,12 +282,19 @@ def training_report(iteration, Ll1, loss, l1_loss,
                 for idx, viewpoint in enumerate(config['cameras']):
                     render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs)
                     image = torch.clamp(render_pkg["render"], 0.0, 1.0)
-                    if pipe.use_depth_rasterizer:
-                        depth_map = torch.clip((render_pkg["rendered_depth"] - render_pkg["rendered_depth"].min()) / (render_pkg["rendered_depth"].max() - render_pkg["rendered_depth"].min()), 0.0, 1.0)
-                        alpha_map = torch.clamp((render_pkg["rendered_alpha"] - render_pkg["rendered_alpha"].min()) / (render_pkg["rendered_alpha"].max() - render_pkg["rendered_alpha"].min()), 0.0, 1.0)
                     gt_image = torch.clip(viewpoint.original_image.to("cuda"), 0.0, 1.0)
-                    if pipe.use_depth_rasterizer:
+                    if uw_tuple:
+                        depth_map = torch.clip((render_pkg["rendered_depth"] - render_pkg["rendered_depth"].min()) / (render_pkg["rendered_depth"].max() - render_pkg["rendered_depth"].min()), 0.0, 1.0)
                         depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0)
+                        rendered_J = torch.clamp(render_pkg["rendered_J"], 0.0, 1.0)
+                        rendered_backscattering = torch.clamp(render_pkg["rendered_backscattering"], 0.0, 1.0)
+                        # rendered_backscattering = torch.clip((render_pkg["rendered_backscattering"] - render_pkg["rendered_backscattering"].min()) / (render_pkg["rendered_backscattering"].max() - render_pkg["rendered_backscattering"].min()), 0.0, 1.0)
+                        
+                        
+                        
+                    
+
+                       
                     
                     if uw_tuple[0] and uw_tuple[1].removal_using_monocular_depth:
                         if viewpoint.image_depth_monocular is None:
@@ -286,28 +303,28 @@ def training_report(iteration, Ll1, loss, l1_loss,
                         else:
                             depth_map_unnormalize = viewpoint.image_depth_monocular
                         
-                    if uw_tuple[0] and uw_tuple[1].remove_bs_from_images and curr_bs_dict is not None:
-                        if viewpoint.original_image_without_bs is not None:
-                            gt_Ic = preform_full_bs_addition(Dc=viewpoint.original_image_without_bs.cpu().numpy(), bs_dict=curr_bs_dict, image_depth=depth_map_unnormalize)
-                            gt_Ic = torch.from_numpy(gt_Ic).float().cuda()
-                            gt_Ic = torch.clamp(gt_Ic, 0.0, 1.0)
-                        else:
-                            gt_Ic = torch.clip(viewpoint.original_image.to("cuda"), 0.0, 1.0) # training didn't change the image, using the original signal from the dataset
+                    # if uw_tuple[0]:
+                        # if viewpoint.original_image_without_bs is not None:
+                        #     gt_Ic = preform_full_bs_addition(Dc=viewpoint.original_image_without_bs.cpu().numpy(), bs_dict=curr_bs_dict, image_depth=depth_map_unnormalize)
+                        #     gt_Ic = torch.from_numpy(gt_Ic).float().cuda()
+                        #     gt_Ic = torch.clamp(gt_Ic, 0.0, 1.0)
+                        # else:
+                        #     gt_Ic = torch.clip(viewpoint.original_image.to("cuda"), 0.0, 1.0) # training didn't change the image, using the original signal from the dataset
                         
-                        Ic_rendered = preform_full_bs_addition(Dc=image.cpu().numpy(), bs_dict=curr_bs_dict, image_depth=depth_map_unnormalize)
-                        Ic_rendered = torch.from_numpy(Ic_rendered).float().cuda()
-                        Ic_rendered = torch.clamp(Ic_rendered, 0.0, 1.0)
+                        # Ic_rendered = preform_full_bs_addition(Dc=image.cpu().numpy(), bs_dict=curr_bs_dict, image_depth=depth_map_unnormalize)
+                        # Ic_rendered = torch.from_numpy(Ic_rendered).float().cuda()
+                        # Ic_rendered = torch.clamp(Ic_rendered, 0.0, 1.0)
                         
-                        rendered_bs_image = create_backscatter_image(z=depth_map_unnormalize, bs_dict=curr_bs_dict)
-                        rendered_bs_image = torch.from_numpy(rendered_bs_image).float()
-                        rendered_bs_image = torch.clamp(rendered_bs_image, 0.0, 1.0)
+                        # rendered_bs_image = create_backscatter_image(z=depth_map_unnormalize, bs_dict=curr_bs_dict)
+                        # rendered_bs_image = torch.from_numpy(rendered_bs_image).float()
+                        # rendered_bs_image = torch.clamp(rendered_bs_image, 0.0, 1.0)
                         
-                        uw_l1_curr = l1_loss(Ic_rendered, gt_image).mean().double()
-                        uw_l1_test += uw_l1_curr
-                        uw_l2_curr = l2_loss(Ic_rendered, gt_image).mean().double()
-                        uw_l2_test += uw_l2_curr
-                        uw_psnr_curr = psnr(Ic_rendered, gt_image).mean().double()
-                        uw_psnr_test += uw_psnr_curr
+                        # uw_l1_curr = l1_loss(Ic_rendered, gt_image).mean().double()
+                        # uw_l1_test += uw_l1_curr
+                        # uw_l2_curr = l2_loss(Ic_rendered, gt_image).mean().double()
+                        # uw_l2_test += uw_l2_curr
+                        # uw_psnr_curr = psnr(Ic_rendered, gt_image).mean().double()
+                        # uw_psnr_test += uw_psnr_curr
                      
                      
                             
@@ -334,42 +351,41 @@ def training_report(iteration, Ll1, loss, l1_loss,
                         round_num = 5
                         dc_str = '  ||  !only Dc!' if curr_bs_dict is not None else ''
                         wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered": wandb.Image(wb_torch2np(image[None]), caption=f'l1 = {round(float(l1_curr),round_num)},  psnr = {round(float(psnr_curr),round_num)}{dc_str}')}, step=iteration)
-                        if pipe.use_depth_rasterizer:
+                        if uw_tuple[0]:
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_depth": wandb.Image(wb_torch2np(depth_map[None]), caption=f'depth_map')}, step=iteration)
-                            wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_alpha": wandb.Image(wb_torch2np(alpha_map[None]), caption=f'alpha_map')}, step=iteration)
-                        
-                        
-                        if uw_tuple[0] and uw_tuple[1].remove_bs_from_images and curr_bs_dict is not None: 
-                            wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/ground-truth_I_c": wandb.Image(wb_torch2np(gt_Ic[None]), caption=f'gt_Ic')}, step=iteration)
-                            wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_Bs": wandb.Image(wb_torch2np(rendered_bs_image[None]), caption=f'backscattering_image')}, step=iteration)
+                            wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_J": wandb.Image(wb_torch2np(rendered_J[None]), caption=f'rendered_J')}, step=iteration)
+                            wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_backscattering": wandb.Image(wb_torch2np(rendered_backscattering[None]), caption=f'rendered_backscattering')}, step=iteration)
+
+                            wandb.run.log(data={"undewater/backscattering/Bd_histogram": wandb.Histogram(uw_tuple[2]["direct"].detach().cpu()),
+                                                "undewater/backscattering/Binf_histogram": wandb.Histogram(uw_tuple[2]["binf"].detach().cpu()),
+                                                "undewater/backscattering/Bs_histogram": wandb.Histogram(uw_tuple[2]["bs"].detach().cpu())
+                                                }
+                                          ,step= iteration)
+       
+                        # if uw_tuple[0] and uw_tuple[1].remove_bs_from_images and curr_bs_dict is not None: 
+                        #     wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/ground-truth_I_c": wandb.Image(wb_torch2np(gt_Ic[None]), caption=f'gt_Ic')}, step=iteration)
+                        #     wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_Bs": wandb.Image(wb_torch2np(rendered_bs_image[None]), caption=f'backscattering_image')}, step=iteration)
                             
-                            wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_I_c": wandb.Image(wb_torch2np(Ic_rendered[None]), caption=f'l1 = {round(float(uw_l1_curr),round_num)},  psnr = {round(float(uw_psnr_curr),round_num)}')},step=iteration)
+                        #     wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_I_c": wandb.Image(wb_torch2np(Ic_rendered[None]), caption=f'l1 = {round(float(uw_l1_curr),round_num)},  psnr = {round(float(uw_psnr_curr),round_num)}')},step=iteration)
                             
-                            if viewpoint.original_image_without_bs is not None:
-                                gt_image_Dc = torch.clip(viewpoint.original_image_without_bs.to("cuda"), 0.0, 1.0)
-                                wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/ground-truth_Dc": wandb.Image(wb_torch2np(gt_image_Dc[None]), caption=f'gt_Dc')}, step=iteration)
-                            else:
-                                gt_image_Dc, _, _ = preform_full_bs_removal(image=viewpoint.original_image.cpu().numpy(), bs_dict=curr_bs_dict, image_depth=render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0))
-                                gt_image_Dc = torch.from_numpy(gt_image_Dc).float()
-                                gt_image_Dc = torch.clamp(gt_image_Dc, 0.0, 1.0)
-                                wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/ground-truth_Dc": wandb.Image(wb_torch2np(gt_image_Dc[None]), caption=f'gt_Dc')}, step=iteration)
-                            
-                            
-                            
-                            
-                            
-                            
-                            
-                            
+                        #     if viewpoint.original_image_without_bs is not None:
+                        #         gt_image_Dc = torch.clip(viewpoint.original_image_without_bs.to("cuda"), 0.0, 1.0)
+                        #         wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/ground-truth_Dc": wandb.Image(wb_torch2np(gt_image_Dc[None]), caption=f'gt_Dc')}, step=iteration)
+                        #     else:
+                        #         gt_image_Dc, _, _ = preform_full_bs_removal(image=viewpoint.original_image.cpu().numpy(), bs_dict=curr_bs_dict, image_depth=render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0))
+                        #         gt_image_Dc = torch.from_numpy(gt_image_Dc).float()
+                        #         gt_image_Dc = torch.clamp(gt_image_Dc, 0.0, 1.0)
+                        #         wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/ground-truth_Dc": wandb.Image(wb_torch2np(gt_image_Dc[None]), caption=f'gt_Dc')}, step=iteration)
+
                             
                         if iteration == testing_iterations[0]:
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/ground-truth": wandb.Image(wb_torch2np(gt_image[None]), caption=f'gt')}, step=iteration)
                             
-                            if uw_tuple[0] and uw_tuple[1].removal_using_monocular_depth:
-                                depth_map_unnormalize = np.expand_dims(depth_map_unnormalize, axis=2)
-                                wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/monocular-depth": wandb.Image(
-                                      np.clip((depth_map_unnormalize - depth_map_unnormalize.min()) / (depth_map_unnormalize.max() - depth_map_unnormalize.min()), 0.0, 1.0)
-                                      , caption=f'monocular_depth')}, step=iteration)
+                            # if uw_tuple[0] and uw_tuple[1].removal_using_monocular_depth:
+                            #     depth_map_unnormalize = np.expand_dims(depth_map_unnormalize, axis=2)
+                            #     wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/monocular-depth": wandb.Image(
+                            #           np.clip((depth_map_unnormalize - depth_map_unnormalize.min()) / (depth_map_unnormalize.max() - depth_map_unnormalize.min()), 0.0, 1.0)
+                            #           , caption=f'monocular_depth')}, step=iteration)
                             
                             
                     
@@ -381,10 +397,10 @@ def training_report(iteration, Ll1, loss, l1_loss,
                                         config['name'] + '/loss_viewpoint - l2_loss': l2_test,
                                         config['name'] + '/loss_viewpoint - psnr': psnr_test},step=iteration)
                     
-                    if curr_bs_dict is not None:
-                        wandb.run.log(data={config['name'] + '/uw_loss_viewpoint - l1_loss': uw_l1_test,
-                                        config['name'] + '/uw_loss_viewpoint - l2_loss': uw_l2_test,
-                                        config['name'] + '/uw_loss_viewpoint - psnr': uw_psnr_test},step=iteration)
+                    # if curr_bs_dict is not None:
+                    #     wandb.run.log(data={config['name'] + '/uw_loss_viewpoint - l1_loss': uw_l1_test,
+                    #                     config['name'] + '/uw_loss_viewpoint - l2_loss': uw_l2_test,
+                    #                     config['name'] + '/uw_loss_viewpoint - psnr': uw_psnr_test},step=iteration)
 
         if wandb.run is not None:
             wandb.run.log(data={"scene/opacity_histogram": wandb.Histogram(scene.gaussians.get_opacity.detach().cpu()), 'total_points': scene.gaussians.get_xyz.shape[0]},step= iteration)
@@ -439,6 +455,7 @@ def logger_aux(namespace_dict):
     wb_group = namespace_dict["WandbParameters"]["wb_group"]
     wb_dir = namespace_dict["WandbParameters"]["wb_dir"]
     wb_id = namespace_dict["WandbParameters"]["wb_id"]
+    underwater_processing = namespace_dict["LoadingParameters"]["underwater_processing"]
     source_path = namespace_dict["LoadingParameters"]["source_path"]
     iteration = namespace_dict["OptimizationParameters"]["iterations"]
     folder_path = os.path.join("./output/",  namespace_dict["WandbParameters"]["wb_group"])
@@ -450,14 +467,14 @@ def logger_aux(namespace_dict):
     else:
         print(f"Directory '{folder_path}' already exists.")
     files = os.listdir(folder_path)
-    matching_files = [file for file in files if file.startswith(f"{wb_name}_")]
+    matching_files = [file for file in files if file.startswith(f"{wb_name}_{underwater_processing}_")]
     numbers = [int(file.split("_")[-1]) for file in matching_files]
     if numbers:
         next_number = max(numbers) + 1
     else:
         next_number = 0  # If no files found, start with 0
     next_number_padded = str(next_number).zfill(5)
-    next_filename = f"{wb_name}_iter{iteration}_{next_number_padded}"
+    next_filename = f"{wb_name}_{underwater_processing}_iter{iteration}_{next_number_padded}"
     new_run=False
     if not wb_resume in ["allow", "must", "auto"]:
         # new run

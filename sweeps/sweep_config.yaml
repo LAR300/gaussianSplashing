@@ -20,13 +20,13 @@ parameters:
       resolution:
         values: [-1]
       white_background:
-        values: [false]
+        value: false
       data_device:
-        values: [cuda]
+        value: cuda
       eval:
         values: [true]
       underwater_processing:
-        value: [ON, OFF]
+        value: HYB
   OptimizationParameters:
     parameters:
       iterations:
@@ -70,7 +70,7 @@ parameters:
       compute_cov3D_python:
         values: [false]
       use_depth_rasterizer:
-          values: [false]
+          value: false
       debug:
         values: [false]
   WandbParameters:
@@ -92,9 +92,9 @@ parameters:
   GeneralParameters:
     parameters:
       ip:
-        value: 127.0.0.1
+        value: "0"
       port:
-        values: [6009]
+        value: 0
       debug_from:
         values: [-1]
       detect_anomaly:
@@ -106,9 +106,8 @@ parameters:
       test_iterations:  
         values: [[  
           1,
-          15000,
-          30000,
-          50000
+          70000,
+          30000
         ]]  
       save_iterations:  
         values: [[  
@@ -119,14 +118,23 @@ parameters:
   UnderwaterParameters:
     parameters:
       remove_bs_from_images:
-        value: [false, true]
+        value: false
       removal_using_monocular_depth:
-        value: [false, true]
+        value: false
       bs_removal_every:
-        values: [5000, 10000]  
+        value: 5000  
+      exp_range_l:
+        values: [0.01, 0.3]
+      exp_range_h:
+        values: [0.5, 1.0]
+      binf_range_l:
+        values: [0.05, 0.3]
+      binf_range_h:
+        values: [0.5, 0.8]
   TrainingTime:
     parameters:
       minutes:
         value: 0
       seconds: 
         value: 0
+      

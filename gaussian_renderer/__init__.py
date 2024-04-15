@@ -130,7 +130,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         # end addition uw
     elif uw_flag=="HYB":
         # start addition uw
-        rendered_image, radii, rendered_depth = rasterizer(
+        rendered_image, radii, rendered_depth, rendered_J, rendered_backscattering = rasterizer(
             means3D = means3D,
             means2D = means2D,
             shs = shs,
@@ -169,16 +169,26 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
-    if pipe.use_depth_rasterizer:
+    if uw_flag=="ON" and pipe.use_depth_rasterizer:
         return {"render": rendered_image,
                 "rendered_depth": rendered_depth,
                 "rendered_alpha": rendered_alpha,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii}
-    else:
+    elif uw_flag=="HYB":
         return {"render": rendered_image,
                 "rendered_depth": rendered_depth,
+                "rendered_J" : rendered_J,
+                "rendered_backscattering" : rendered_backscattering,
+                "viewspace_points": screenspace_points,
+                "visibility_filter" : radii > 0,
+                "radii": radii,
+                "direct": direct,
+                "binf": binf,
+                "bs": bs}
+    else:
+        return {"render": rendered_image,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii}

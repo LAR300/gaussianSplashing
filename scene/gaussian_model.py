@@ -480,7 +480,8 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
     # start addition uw
-    def enforce_constraints_hyb(self, direct_range=(0.01,1), binf_range=(0.05,0.8), bs_range=(0.01,1)):
+    # def enforce_constraints_hyb(self, direct_range=(0.01,1), binf_range=(0.05,0.8), bs_range=(0.01,1)):
+    def enforce_constraints_hyb(self, direct_range=(0.1,1), binf_range=(0.1,0.8), bs_range=(0.1,1)):
         self._direct.data.clamp_(direct_range[0], direct_range[1])
         self._binf.data.clamp_(binf_range[0], binf_range[1])
         self._bs.data.clamp_(bs_range[0], bs_range[1])
