@@ -68,7 +68,7 @@ def estimateBackscatter(Ism, zsm, pdark=0.01, intervals_num=25, resized_highet=3
     Bc_inf = out[0, :]
     bcb = out[1, :]
     params = {'Bc_inf': np.array(Bc_inf), 'betac_b': np.array(bcb), 'pdark': pdark}
-    return params # BGR
+    return params # RGB
 
 def getBackscatterByCurveFittingMultipleImages(I, dm, pdark=0.01, rhoflag=0, edges_num=10):
     if rhoflag:
@@ -174,15 +174,7 @@ def clean_bs_image(I, bs_image):
 def add_bs_image(Dc, bs_image):
     return Dc + bs_image
 
-def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
-    if depth:
-        return cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
-    else:
-        image = cv2.imread(filename, code)
-        if np.max(image) > 1:
-            image = image / 255.0
-        return image
-    
+
 def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
     if depth:
         return cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
@@ -227,11 +219,11 @@ def save_image(filename, image, depth=False):
         # image = (image * 255).astype(np.uint8) 
         # cv2.imwrite(filename, image)
         return
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # RGB->BGR
     if np.max(image) <= 1:
         image = (image * 255).astype(np.uint8) 
     if image.shape[0] in [1,2,3] and image.ndim >2:
         image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # RGB->BGR
     cv2.imwrite(filename, image)
 
 def preform_full_bs_addition(Dc, bs_dict, image_depth=None):
@@ -293,9 +285,12 @@ if __name__ == "__main__":
     whiteblancing_dir = os.path.join('uw_formation', 'white_balancing')
     bs_dir = os.path.join('uw_formation', 'bs_estimation')
     depth_dir = os.path.join('uw_formation', 'depth_estimation')
+    clean_dir = os.path.join('uw_formation', 'clean_bs')
     depth_gs_dir = os.path.join('uw_formation', 'depth_gs')
-    input_image_name = "DSC01792"
+    input_image_name = "MTN_1107"
     ext = ".png"
+    # input_image_name = "DSC01784"
+    # ext = ".jpg"
     input_depth = None
     input_image = os.path.join(whiteblancing_dir,f"{input_image_name}{ext}")
     #input_depth = os.path.join(depth_dir,f"{input_image_name}_depth.png")
@@ -305,10 +300,14 @@ if __name__ == "__main__":
     output_image_name_bs = f"{input_image_name}_bs.png"
     #output_image_name_cleanbs = f"{input_image_name}_bs_clean.png"
     image = load_image(input_image)#load_image(input_image)
-    clean_from_bs, bs_image, bs_dict, image_depth = preform_full_bs_removal(image, bs_dict=None,  return_depth=True)
-    save_image(output_image_name_depth, image_depth, depth=True)
-    save_image(output_image_name_cleanbs, clean_from_bs)
-    save_image(output_image_name_bs, bs_image)
+    image_depth = None
+    image_depth = load_image(os.path.join(depth_gs_dir, f"{input_image_name}_gs10000_depth{ext}"),depth=True)
+    clean_from_bs, bs_image, bs_dict, image_depth = preform_full_bs_removal(image, bs_dict=None, image_depth=image_depth, return_depth=True)
+
+    save_image(os.path.join(clean_dir,output_image_name_cleanbs), clean_from_bs)
+    save_image(os.path.join(depth_dir,output_image_name_depth), image_depth)
+    save_image(os.path.join(bs_dir,output_image_name_bs), bs_image)
+
     print(f'bs_dict: {bs_dict}')
     print(f'Processing {input_image_name} done')
     #preform_full_bs_removal_path(input_image, os.path.join(bs_dir,output_image_name_cleanbs), image_depth=load_image(input_depth, depth=True))

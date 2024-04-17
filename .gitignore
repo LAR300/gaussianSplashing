@@ -16,6 +16,7 @@ uw_formation/bs_estimation
 uw_formation/depth_gs
 uw_formation/depth_estimation
 uw_formation/white_balancing
+uw_formation/clean_bs
 SIBR_viewers
 simple-knn
 diff-gaussian-rasterization_depthUW

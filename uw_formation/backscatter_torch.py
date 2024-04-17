@@ -199,18 +199,20 @@ def preform_full_bs_removal(image, image_depth=None):
     clean_from_bs = chw2hwc(clean_from_bs, invers=True)
     return clean_from_bs, bs_image, bs_dict
 
-def preform_full_bs_removal_path(input_image_path, output_image_path, image_depth=None):
+def preform_full_bs_removal_path(input_image_path, image_depth=None):
     image = load_image(input_image_path)
     image = chw2hwc(image)
     if image_depth is None or image_depth.shape != image.shape[:2]:
         print('Estimating depth')
         image_depth = depth_estimation(image)
+        image_depth = torch.from_numpy(image_depth)
     bs_dict = estimateBackscatter(image, image_depth, pdark=0.1)
     bs_image = create_backscatter_image(image_depth, bs_dict)
     clean_from_bs = clean_bs_image(image, bs_image)
     bs_image = chw2hwc(bs_image, invers=True)
     clean_from_bs = chw2hwc(clean_from_bs, invers=True)
-    save_image(output_image_path, clean_from_bs)
+    
+    return image, clean_from_bs, bs_image, bs_dict, image_depth
 
 def preform_bs_on_dir(input_dir, output_dir):
     for file in os.listdir(input_dir):
@@ -220,14 +222,32 @@ def preform_bs_on_dir(input_dir, output_dir):
             preform_full_bs_removal_path(input_image, output_image)
             print(f'Processing {file} done')
 
+
+
 if __name__ == "__main__":
     whiteblancing_dir = os.path.join('uw_formation', 'white_balancing')
     bs_dir = os.path.join('uw_formation', 'bs_estimation')
     depth_dir = os.path.join('uw_formation', 'depth_estimation')
-    input_image_name = "MTN_1103"
-    input_image = os.path.join(whiteblancing_dir,f"{input_image_name}.png")
+    clean_dir = os.path.join('uw_formation', 'clean_bs')
+    depth_gs_dir = os.path.join('uw_formation', 'depth_gs')
+    input_image_name = "MTN_1108"
+    ext = ".png"
+    input_depth = None
+    input_image = f"{input_image_name}{ext}"
     #input_depth = os.path.join(depth_dir,f"{input_image_name}_depth.png")
-    input_depth = os.path.join(depth_dir,f"train_MTN_1103_30000.png")
-    output_image_name_cleanbs = f"{input_image_name}_bs_30000_torch.png"
-    #output_image_name_cleanbs = f"{input_image_name}_bs_clean_torch.png"
-    preform_full_bs_removal_path(input_image, os.path.join(bs_dir,output_image_name_cleanbs), image_depth=load_image(input_depth, depth=True))
+    #input_depth = os.path.join(depth_gs_dir,f"train_{input_image_name}_30000.png")
+    output_image_name_depth = f"{input_image_name}_depth.png"
+    output_image_name_cleanbs = f"{input_image_name}_nonbs.png"
+    output_image_name_bs = f"{input_image_name}_bs.png"
+    image, clean_from_bs, bs_image, bs_dict, image_depth = preform_full_bs_removal_path(os.path.join(whiteblancing_dir,input_image), image_depth=None)
+    save_image(os.path.join(clean_dir,output_image_name_cleanbs), clean_from_bs)
+    save_image(os.path.join(depth_dir,output_image_name_depth), image_depth)
+    save_image(os.path.join(bs_dir,output_image_name_bs), bs_image)
+    print(bs_dict)
+    print(f'Processing {input_image_name} done')
+    #preform_full_bs_removal_path(input_image, os.path.join(bs_dir,output_image_name_cleanbs), image_depth=load_image(input_depth, depth=True))
+
+    
+    # seathru_nerf_data_dir = os.path.join('data', 'SeathruNeRF_dataset')
+    # preform_bs_on_dir(os.path.join(seathru_nerf_data_dir, 'Panama', 'images_wb'), os.path.join(seathru_nerf_data_dir, 'Panama', 'Panama_images_without_bs'))
+    

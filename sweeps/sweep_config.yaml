@@ -106,7 +106,8 @@ parameters:
       test_iterations:  
         values: [[  
           1,
-          70000,
+          3000,
+          10000,
           30000
         ]]  
       save_iterations:  
@@ -123,14 +124,18 @@ parameters:
         value: false
       bs_removal_every:
         value: 5000  
-      exp_range_l:
-        values: [0.01, 0.3]
-      exp_range_h:
-        values: [0.5, 1.0]
+      exp_range_dl:
+        value: 0.05
+      exp_range_dh:
+        value: 1.0
+      exp_range_bl:
+        value: 0.05
+      exp_range_bh:
+        value: 1.0
       binf_range_l:
-        values: [0.05, 0.3]
+        values: [0.05, 0.2, 0.4, 0.6]
       binf_range_h:
-        values: [0.5, 0.8]
+        values: [0.9]
   TrainingTime:
     parameters:
       minutes:

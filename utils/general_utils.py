@@ -28,44 +28,23 @@ def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
             image = image / 255.0
         return image
     
-    
-def save_image(filename, image, depth=False):
+       
+def save_image(filename, image_orig, depth=False):
     if depth:
-        bits = 1
-        grayscale = True
-        if not grayscale:
-            bits = 1
-
-        if not np.isfinite(depth).all():
-            depth=np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
-            print("WARNING: Non-finite depth values present")
-
-        depth_min = image.min()
-        depth_max = image.max()
-
-        max_val = (2**(8*bits))-1
-
-        if depth_max - depth_min > np.finfo("float").eps:
-            out = max_val * (image - depth_min) / (depth_max - depth_min)
-        else:
-            out = np.zeros(image.shape, dtype=image.dtype)
-
-        if not grayscale:
-            out = cv2.applyColorMap(np.uint8(out), cv2.COLORMAP_INFERNO)
-
-        if bits == 1:
-            cv2.imwrite(filename, out.astype("uint8"))
-        elif bits == 2:
-            cv2.imwrite(filename, out.astype("uint16"))
+        image = image_orig.detach().cpu().numpy()
+        try:
+            image = image.squeeze(0)
+        except:
+            pass
+        cv2.imwrite(filename, image)
         # image = (image - image.min())/(image.max() - image.min())
         # image = (image * 255).astype(np.uint8) 
         # cv2.imwrite(filename, image)
-        return
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # RGB->BGR
     if np.max(image) <= 1:
         image = (image * 255).astype(np.uint8) 
     if image.shape[0] in [1,2,3] and image.ndim >2:
         image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # RGB->BGR
     cv2.imwrite(filename, image)
 
 

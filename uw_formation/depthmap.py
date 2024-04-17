@@ -4,6 +4,8 @@ import os
 import numpy as np
 
 def depth_estimation(image):
+    if type(image) == torch.Tensor:
+        image = image.numpy()
     transpose_chw = False
     if image.shape[0] in [1,2,3]:
          # transpose CHW -> HWC
@@ -46,14 +48,17 @@ def depth_estimation(image):
     if transpose_chw:
         # transpose HWC -> CHW
         image = np.transpose(image, (2, 0, 1))
+    
+    
     return output
 
 if __name__ == "__main__":
     whiteblancing_dir = os.path.join('uw_formation', 'white_balancing')
     depthdir = os.path.join('uw_formation', 'depth_estimation')
-    input_image_name = "MTN_1105"
+    input_image_name = "MTN_1097"
     input_image_name_ext = f"{input_image_name}.png"
     output_image_name = f"{input_image_name}_depth.png"
     image = cv2.imread(os.path.join(whiteblancing_dir,input_image_name_ext), cv2.IMREAD_COLOR)
     d_map = depth_estimation(image)
+    print(f'min: {d_map.min()}, max: {d_map.max()}.. max lines up {d_map[0:10].max()}, max lines down {d_map[-10:-1].max()}, shape: {d_map.shape}')
     cv2.imwrite(os.path.join(depthdir,output_image_name), d_map)

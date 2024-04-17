@@ -18,7 +18,7 @@ from utils.loss_utils import l1_loss, l2_loss, ssim
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
-from utils.general_utils import safe_state
+from utils.general_utils import safe_state, save_image
 import uuid
 import time
 from tqdm import tqdm
@@ -128,17 +128,22 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             pipe.debug = True
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background # [0,0,0] most of the times
-
-        render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
+        if dataset.underwater_processing == "HYBDEPTH" and iteration > 500:
+            render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag="HYB")
+        else:
+            render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
         if dataset.underwater_processing=="ON" and pipe.use_depth_rasterizer:
             image, depth_map, alpha_map, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_alpha"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-        elif dataset.underwater_processing=="HYB":
+        elif dataset.underwater_processing.startswith("HYB"):
              image, depth_map, rendered_J, rendered_backscattering, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_J"], render_pkg["rendered_backscattering"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
              uw_additions["direct"], uw_additions["binf"], uw_additions["bs"] = render_pkg["direct"], render_pkg["binf"], render_pkg["bs"]
         else:
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        if iteration in cfg_dot_dic.GeneralParameters.test_iterations:
+            save_image(os.path.join("uw_formation", "depth_gs" ,f"{viewpoint_cam.image_name}_gs{iteration}_depth.png"), depth_map, depth=True)
+        pipe.debug = False
         # Underwater backscatter removal
-        if dataset.underwater_processing=="HYB":
+        if dataset.underwater_processing.startswith("HYB"):
             
             if uw.remove_bs_from_images:
                 if uw.removal_using_monocular_depth:
@@ -163,23 +168,17 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     if iteration % uw.bs_removal_every == 0:   
                         # gt image without bs, using gs depth iteratively
                         gt_image_without_bs, bs_image, bs_dict = preform_full_bs_removal(image=viewpoint_cam.original_image.cpu().numpy() ,image_depth=render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0))
-                        gt_image_without_bs = torch.from_numpy(gt_image_without_bs).float().cuda()
-                        
-                        curr_bs_dict= bs_dict
-                        viewpoint_cam.original_image_without_bs = gt_image_without_bs
-                        
-                        gt_image = viewpoint_cam.original_image_without_bs.cuda()
-                    else:
-                        if curr_bs_dict is None:
-                            gt_image = viewpoint_cam.original_image.cuda()
-                        else:
-                            gt_image_without_bs, bs_image, bs_dict = preform_full_bs_removal(image=viewpoint_cam.original_image.cpu().numpy(), bs_dict=curr_bs_dict ,image_depth=render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0))
-                            gt_image_without_bs = torch.from_numpy(gt_image_without_bs).float().cuda()
+                    # else:
+                    #     if curr_bs_dict is None:
+                    #         gt_image = viewpoint_cam.original_image.cuda()
+                    #     else:
+                    #         gt_image_without_bs, bs_image, bs_dict = preform_full_bs_removal(image=viewpoint_cam.original_image.cpu().numpy(), bs_dict=curr_bs_dict ,image_depth=render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0))
+                    #         gt_image_without_bs = torch.from_numpy(gt_image_without_bs).float().cuda()
                             
-                            # curr_bs_dict = bs_dict # no need, it is the same as before
-                            viewpoint_cam.original_image_without_bs = gt_image_without_bs
+                    #         # curr_bs_dict = bs_dict # no need, it is the same as before
+                    #         viewpoint_cam.original_image_without_bs = gt_image_without_bs
                             
-                            gt_image = viewpoint_cam.original_image_without_bs.cuda()
+                    #         gt_image = viewpoint_cam.original_image_without_bs.cuda()
                         
             else:
                 gt_image = viewpoint_cam.original_image.cuda()
@@ -201,10 +200,12 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 progress_bar.close()
 
             # Log and save
+            im_test_flag = False
+            training_rep_uw = "HYB" if dataset.underwater_processing == "HYBDEPTH" and iteration > 500 else dataset.underwater_processing 
             training_report(iteration, Ll1, loss, l1_loss,
                             Ll2, l2_loss, Psnr,
-                            iter_start.elapsed_time(iter_end), cfg_dot_dic.GeneralParameters.test_iterations, scene, render, (pipe, bg, dataset.underwater_processing),
-                            (dataset.underwater_processing=="HYB",uw, uw_additions), curr_bs_dict)
+                            iter_start.elapsed_time(iter_end), cfg_dot_dic.GeneralParameters.test_iterations, scene, render, [pipe, bg, training_rep_uw, im_test_flag],
+                            (dataset.underwater_processing,uw, uw_additions), curr_bs_dict)
             if (iteration in cfg_dot_dic.GeneralParameters.save_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -226,8 +227,8 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             if iteration < opt.iterations:
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
-                if dataset.underwater_processing == "HYB":
-                    gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_l, uw.exp_range_h), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_l, uw.exp_range_h))
+                if dataset.underwater_processing.startswith("HYB"):
+                    gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_dl, uw.exp_range_dh), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_bl, uw.exp_range_bh))
 
             if (iteration in cfg_dot_dic.GeneralParameters.checkpoint_iterations and not sweep_train_flag):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
@@ -271,6 +272,7 @@ def training_report(iteration, Ll1, loss, l1_loss,
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(5, 30, 5)]})
 
         for config in validation_configs:
+            renderArgs[-1] = True if config['name'] == "test" else False
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
                 l2_test = 0.0
@@ -283,25 +285,23 @@ def training_report(iteration, Ll1, loss, l1_loss,
                     render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs)
                     image = torch.clamp(render_pkg["render"], 0.0, 1.0)
                     gt_image = torch.clip(viewpoint.original_image.to("cuda"), 0.0, 1.0)
-                    if uw_tuple:
+                    if uw_tuple[0].startswith("HYB"):
                         depth_map = torch.clip((render_pkg["rendered_depth"] - render_pkg["rendered_depth"].min()) / (render_pkg["rendered_depth"].max() - render_pkg["rendered_depth"].min()), 0.0, 1.0)
-                        depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0)
+                        try:
+                            depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0)
+                        except:
+                            depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy()
                         rendered_J = torch.clamp(render_pkg["rendered_J"], 0.0, 1.0)
                         rendered_backscattering = torch.clamp(render_pkg["rendered_backscattering"], 0.0, 1.0)
                         # rendered_backscattering = torch.clip((render_pkg["rendered_backscattering"] - render_pkg["rendered_backscattering"].min()) / (render_pkg["rendered_backscattering"].max() - render_pkg["rendered_backscattering"].min()), 0.0, 1.0)
-                        
-                        
-                        
-                    
-
                        
                     
-                    if uw_tuple[0] and uw_tuple[1].removal_using_monocular_depth:
-                        if viewpoint.image_depth_monocular is None:
-                            depth_map_unnormalize = depth_estimation(viewpoint.original_image.cpu().numpy())
-                            viewpoint.image_depth_monocular = depth_map_unnormalize
-                        else:
-                            depth_map_unnormalize = viewpoint.image_depth_monocular
+                        if  uw_tuple[1].removal_using_monocular_depth:
+                            if viewpoint.image_depth_monocular is None:
+                                depth_map_unnormalize = depth_estimation(viewpoint.original_image.cpu().numpy())
+                                viewpoint.image_depth_monocular = depth_map_unnormalize
+                            else:
+                                depth_map_unnormalize = viewpoint.image_depth_monocular
                         
                     # if uw_tuple[0]:
                         # if viewpoint.original_image_without_bs is not None:

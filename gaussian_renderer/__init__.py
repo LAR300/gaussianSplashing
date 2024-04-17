@@ -15,7 +15,7 @@ from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianR
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor,  uw_flag="OFF", scaling_modifier = 1.0, override_color = None, override_color_cmed = None):
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor,  uw_flag="OFF", im_test_flag=False, scaling_modifier = 1.0, override_color = None, override_color_cmed = None):
     """
     Render the scene. 
     
@@ -72,7 +72,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     colors_precomp = None
     if uw_flag=="ON":
         colors_precomp_cmed = None # addition uw
-    if uw_flag=="HYB":
+    if uw_flag.startswith("HYB"):
         direct = pc.get_direct
         binf = pc.get_binf
         bs = pc.get_bs
@@ -128,8 +128,12 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             rotations = rotations,
             cov3D_precomp = cov3D_precomp)
         # end addition uw
-    elif uw_flag=="HYB":
+    elif uw_flag.startswith("HYB"):
         # start addition uw
+        if uw_flag == "HYBDEPTH":
+            pre_depth = viewpoint_camera.image_depth_monocular if not im_test_flag else None
+        else:
+            pre_depth = None
         rendered_image, radii, rendered_depth, rendered_J, rendered_backscattering = rasterizer(
             means3D = means3D,
             means2D = means2D,
@@ -139,6 +143,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             direct = direct,
             binf = binf, 
             bs = bs,
+            monodepth = pre_depth,
             # end addition uw
             opacities = opacity,
             scales = scales,
@@ -176,7 +181,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii}
-    elif uw_flag=="HYB":
+    elif uw_flag.startswith("HYB"):
         return {"render": rendered_image,
                 "rendered_depth": rendered_depth,
                 "rendered_J" : rendered_J,

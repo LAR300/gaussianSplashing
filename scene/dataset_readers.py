@@ -23,6 +23,7 @@ from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
 from utils.general_utils import save_image, load_image
 
+
 class CameraInfo(NamedTuple):
     uid: int
     R: np.array

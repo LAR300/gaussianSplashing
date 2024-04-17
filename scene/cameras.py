@@ -13,6 +13,7 @@ import torch
 from torch import nn
 import numpy as np
 from utils.graphics_utils import getWorld2View2, getProjectionMatrix
+from uw_formation.depthmap import depth_estimation
 
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
@@ -39,14 +40,20 @@ class Camera(nn.Module):
         self.original_image = image.clamp(0.0, 1.0).to(self.data_device)
         self.image_width = self.original_image.shape[2]
         self.image_height = self.original_image.shape[1]
-        
-        if underwater_processing=="ON":
-            self.original_image_without_bs = None
-            self.image_depth_monocular = None
+    
         if gt_alpha_mask is not None:
             self.original_image *= gt_alpha_mask.to(self.data_device)
         else:
             self.original_image *= torch.ones((1, self.image_height, self.image_width), device=self.data_device)
+        
+        if underwater_processing=="ON":
+            self.original_image_without_bs = None
+            self.image_depth_monocular = None
+        if underwater_processing.startswith("HYB"):
+            self.image_depth_monocular = None
+            if underwater_processing=="HYBDEPTH":
+                self.image_depth_monocular = depth_estimation(self.original_image.cpu().numpy())
+                self.image_depth_monocular =  torch.Tensor(self.image_depth_monocular).to('cuda').requires_grad_(False)
 
         self.zfar = 100.0
         self.znear = 0.01
