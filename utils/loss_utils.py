@@ -23,12 +23,14 @@ def l2_loss(network_output, gt):
 
 def bs_loss(iteration, gt, image_depth, binf, bs, bs_dict=None):
     curr_bs_dict = bs_dict
-    if iteration%500 == 0:
+    if iteration%1000 == 0:
         _, _, curr_bs_dict = preform_full_bs_removal(gt.cpu().numpy(), bs_dict=None, image_depth=image_depth.detach().cpu().numpy().squeeze(axis=0), return_depth=False)
-    if curr_bs_dict is None:
+    if curr_bs_dict is None or not bool(curr_bs_dict):
         return 0.0
-    b_inf_gt = torch.Tensor(curr_bs_dict['Bc_inf']).to(binf.device)
-    bs_gt = torch.Tensor(curr_bs_dict['betac_b']).to(bs.device)
+    else:
+        bs_dict = curr_bs_dict
+    b_inf_gt = torch.Tensor(bs_dict['Bc_inf']).to(binf.device)
+    bs_gt = torch.Tensor(bs_dict['betac_b']).to(bs.device)
     return 0.6 * torch.mean((binf - b_inf_gt) ** 2) + 0.4 * torch.mean((bs - bs_gt) ** 2)
 
 

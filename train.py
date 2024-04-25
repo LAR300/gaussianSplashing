@@ -320,10 +320,10 @@ def training_report(iteration, Ll1, loss, l1_loss,
         if wandb.run is not None:
             wandb.run.log(data={"scene/opacity_histogram": wandb.Histogram(scene.gaussians.get_opacity.detach().cpu()), 'total_points': scene.gaussians.get_xyz.shape[0]},step= iteration)
             
-            if curr_bs_dict is not None:
-                wandb.run.log(data={"underwater/backscattering/Bc_inf": curr_bs_dict['Bc_inf'].astype("float32"),
-                                   "underwater/backscattering/beta_b": curr_bs_dict['betac_b'].astype("float32"),
-                                    "underwater/backscattering/pdark": curr_bs_dict['pdark']},step= iteration)
+            if curr_bs_dict is not None and bool(curr_bs_dict):
+                wandb.run.log(data={"underwater/backscattering_data/Bc_inf": curr_bs_dict['Bc_inf'].astype("float32"),
+                                   "underwater/backscattering_data/beta_b": curr_bs_dict['betac_b'].astype("float32"),
+                                    "underwater/backscattering_data/pdark": curr_bs_dict['pdark']},step= iteration)
         torch.cuda.empty_cache()
         
 def organize_logger(cfg_args, action_groups):
