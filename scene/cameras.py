@@ -46,9 +46,6 @@ class Camera(nn.Module):
         else:
             self.original_image *= torch.ones((1, self.image_height, self.image_width), device=self.data_device)
         
-        if underwater_processing=="ON":
-            self.original_image_without_bs = None
-            self.image_depth_monocular = None
         if underwater_processing.startswith("HYB"):
             self.image_depth_monocular = None
             if underwater_processing=="HYBDEPTH":

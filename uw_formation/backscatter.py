@@ -280,6 +280,30 @@ def preform_bs_on_dir(input_dir, output_dir):
             output_image = os.path.join(output_dir,file)
             preform_full_bs_removal_path(input_image, output_image)
             print(f'Processing {file} done')
+
+def image_to_matrix(img_gray):
+
+    # Get the dimensions of the image
+    height, width = img_gray.shape
+    
+    # Create an empty matrix to store pixel values
+    pixel_matrix = []
+    
+    # Iterate through each pixel and append its grayscale value to the matrix
+    for y in range(height):
+        row = []
+        for x in range(width):
+            pixel = img_gray[y,x]
+            row.append(pixel)
+        pixel_matrix.append(row)
+    
+    return pixel_matrix
+
+def matrix_to_text(pixel_matrix, output_file):
+    
+   with open(output_file, 'w') as f:
+        for row in pixel_matrix:
+            f.write(' '.join(map(str, row)) + '\n') 
             
 if __name__ == "__main__":
     whiteblancing_dir = os.path.join('uw_formation', 'white_balancing')
@@ -287,6 +311,7 @@ if __name__ == "__main__":
     depth_dir = os.path.join('uw_formation', 'depth_estimation')
     clean_dir = os.path.join('uw_formation', 'clean_bs')
     depth_gs_dir = os.path.join('uw_formation', 'depth_gs')
+    depth_text_dir = os.path.join('uw_formation', 'depth_text')
     input_image_name = "MTN_1107"
     ext = ".png"
     # input_image_name = "DSC01784"
@@ -301,7 +326,10 @@ if __name__ == "__main__":
     #output_image_name_cleanbs = f"{input_image_name}_bs_clean.png"
     image = load_image(input_image)#load_image(input_image)
     image_depth = None
-    image_depth = load_image(os.path.join(depth_gs_dir, f"{input_image_name}_gs10000_depth{ext}"),depth=True)
+    iters = 7000
+    image_depth = load_image(os.path.join(depth_gs_dir, f"{input_image_name}_gs{iters}_depth{ext}"),depth=True)
+    matrix_to_text(image_depth, os.path.join(depth_text_dir, f"{input_image_name}_gs{iters}_depth.txt"))
+    
     clean_from_bs, bs_image, bs_dict, image_depth = preform_full_bs_removal(image, bs_dict=None, image_depth=image_depth, return_depth=True)
 
     save_image(os.path.join(clean_dir,output_image_name_cleanbs), clean_from_bs)

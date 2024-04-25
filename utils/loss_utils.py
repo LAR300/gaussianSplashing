@@ -14,11 +14,22 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from math import exp
 
+from uw_formation.backscatter import preform_full_bs_removal
 def l1_loss(network_output, gt):
     return torch.abs((network_output - gt)).mean()
 
 def l2_loss(network_output, gt):
     return ((network_output - gt) ** 2).mean()
+
+def bs_loss(iteration, gt, image_depth, binf, bs, bs_dict=None):
+    curr_bs_dict = bs_dict
+    if iteration%500 == 0:
+        _, _, curr_bs_dict = preform_full_bs_removal(gt.cpu().numpy(), bs_dict=None, image_depth=image_depth.detach().cpu().numpy().squeeze(axis=0), return_depth=False)
+    if curr_bs_dict is None:
+        return 0.0
+    b_inf_gt = torch.Tensor(curr_bs_dict['Bc_inf']).to(binf.device)
+    bs_gt = torch.Tensor(curr_bs_dict['betac_b']).to(bs.device)
+    return 0.6 * torch.mean((binf - b_inf_gt) ** 2) + 0.4 * torch.mean((bs - bs_gt) ** 2)
 
 
 def gaussian(window_size, sigma):
@@ -63,3 +74,8 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
     else:
         return ssim_map.mean(1).mean(1).mean(1)
 
+def zero_one_loss(img):
+    zero_epsilon = 1e-3
+    val = torch.clamp(img, zero_epsilon, 1 - zero_epsilon)
+    loss = torch.mean(torch.log(val) + torch.log(1 - val))
+    return loss

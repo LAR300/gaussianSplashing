@@ -104,7 +104,7 @@ class ModelParams(ParamGroup):
         self._images = "images"
         self.initialization_points_option = "pointcloud" # "cluster", "pointcloud", "random"
         self._resolution = -1
-        self.underwater_processing = "OFF" # "OFF", "ON" , "HYB", "HYBDEPTH"
+        self.underwater_processing = "OFF" # "OFF", "HYB", "HYBDEPTH"
         self._white_background = False
         self.data_device = "cuda"
         self.eval = True # if True, use train and testset, else, only one set
@@ -119,7 +119,6 @@ class PipelineParams(ParamGroup):
     def __init__(self, parser):
         self.convert_SHs_python = False
         self.compute_cov3D_python = False
-        self.use_depth_rasterizer = False
         self.debug = False
         super().__init__(parser, "Pipeline Parameters")
 
@@ -151,11 +150,13 @@ class OptimizationParams(ParamGroup):
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
+        self.lambda_bsest = 0.3
         self.densification_interval = 100 
         self.opacity_reset_interval = 3000 
         self.densify_from_iter = 1500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
+        self.remove_min_opacity_threshold  = 0.01
         self.random_background = False
         super().__init__(parser, "Optimization Parameters")
 
@@ -163,7 +164,7 @@ class WandbParams(ParamGroup):
     def __init__(self, parser):
         self.wb_use_logger=False
         self.wb_project = "gaussian_splattingUW"
-        self.wb_group = "GroupDebug"
+        self.wb_group = "GroupExp1"
         self.wb_name = ""
         self.wb_dir = os.path.join("./logs/")
         self.wb_resume = None # "allow", "must", "never", "auto" or None
