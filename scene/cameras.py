@@ -12,7 +12,7 @@
 import torch
 from torch import nn
 import numpy as np
-from utils.graphics_utils import getWorld2View2, getProjectionMatrix
+from utils.graphics_utils import getWorld2View2, getProjectionMatrix, fov2focal, get_rays
 from uw_formation.depthmap import depth_estimation
 
 class Camera(nn.Module):
@@ -62,7 +62,17 @@ class Camera(nn.Module):
         self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1).cuda()
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         self.camera_center = self.world_view_transform.inverse()[3, :3]
+    def get_calib_matrix_nerf(self):
+            focal = fov2focal(self.FoVx, self.image_width)  # original focal length
+            intrinsic_matrix = torch.tensor([[focal, 0, self.image_width / 2], [0, focal, self.image_height / 2], [0, 0, 1]]).float()
+            extrinsic_matrix = self.world_view_transform.transpose(0,1).contiguous() # cam2world
+            return intrinsic_matrix, extrinsic_matrix
 
+    def get_rays(self):
+        intrinsic_matrix, extrinsic_matrix = self.get_calib_matrix_nerf()
+
+        viewdirs = get_rays(self.image_width, self.image_height, intrinsic_matrix, extrinsic_matrix[:3,:3])
+        return viewdirs
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):
         self.image_width = width

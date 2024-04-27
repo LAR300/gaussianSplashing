@@ -12,11 +12,13 @@
 import os
 import random
 import json
+from utils.general_utils import save_image, save_imagePIL
 from utils.system_utils import searchForMaxIteration
 from scene.dataset_readers import sceneLoadTypeCallbacks
 from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
+import torchvision
 
 class Scene:
 
@@ -81,10 +83,15 @@ class Scene:
                                                            "point_cloud.ply"))
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, args.initialization_points_option)
-
     def save(self, iteration):
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
         self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
+
+    def scene_save_image(self, img, img_name, subdir):
+        dir_path = os.path.join(self.model_path, subdir)
+        os.makedirs(dir_path, exist_ok=True)
+        img_path = os.path.join(dir_path, f"{img_name}.png")
+        torchvision.utils.save_image(img, img_path)
 
     def getTrainCameras(self, scale=1.0):
         return self.train_cameras[scale]

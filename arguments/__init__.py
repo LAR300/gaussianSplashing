@@ -129,11 +129,11 @@ class UnderwaterParams(ParamGroup):
         self.removal_using_monocular_depth = False
         self.bs_removal_every = 5000 
         
-        self.exp_range_dl = 0.05
+        self.exp_range_dl = 0.02
         self.exp_range_dh = 1.0
         self.exp_range_bl = 0.15
         self.exp_range_bh = 0.35
-        self.binf_range_l = 0.15 # 0.05
+        self.binf_range_l = 0.05 # 0.05
         self.binf_range_h = 0.35
         super().__init__(parser, "Underwater Parameters")
         
@@ -149,8 +149,14 @@ class OptimizationParams(ParamGroup):
         self.scaling_lr = 0.005
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
-        self.lambda_dssim = 0.2
+        self.lambda_dssim = 0.3
         self.lambda_bsest = 0.1
+        
+        self.normal_lr = 0.0002
+        self.lambda_zero_one = 1e-3
+        self.lambda_predicted_normal = 2e-1
+        self.lambda_delta_reg = 1e-3
+        
         self.densification_interval = 100 
         self.opacity_reset_interval = 3000 
         self.densify_from_iter = 1500

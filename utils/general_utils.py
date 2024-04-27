@@ -15,6 +15,7 @@ from datetime import datetime
 import numpy as np
 import random
 import cv2
+from PIL import Image
 
 
 def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
@@ -30,16 +31,19 @@ def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
     
        
 def save_image(filename, image_orig, depth=False):
-    if depth:
+    if type(image_orig) == torch.Tensor:
         image = image_orig.detach().cpu().numpy()
         try:
             image = image.squeeze(0)
         except:
             pass
+    if depth:
         cv2.imwrite(filename, image)
         # image = (image - image.min())/(image.max() - image.min())
         # image = (image * 255).astype(np.uint8) 
         # cv2.imwrite(filename, image)
+        return
+    
     if np.max(image) <= 1:
         image = (image * 255).astype(np.uint8) 
     if image.shape[0] in [1,2,3] and image.ndim >2:
@@ -47,7 +51,17 @@ def save_image(filename, image_orig, depth=False):
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # RGB->BGR
     cv2.imwrite(filename, image)
 
-
+def save_imagePIL(img_path, image_orig):
+    if type(image_orig) == torch.Tensor:
+        image = image_orig.detach().cpu().numpy()
+        try:
+            image = image.squeeze(0)
+        except:
+            pass
+    if image.shape[0] in [1,2,3] and image.ndim >2:
+        image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
+    im = Image.fromarray(image)
+    im.save(img_path)
 
 def inverse_sigmoid(x):
     return torch.log(x/(1-x)) # sigmoid(x) = 1/(1+exp(-x))
@@ -180,3 +194,18 @@ def safe_state(silent):
     np.random.seed(0)
     torch.manual_seed(0)
     torch.cuda.set_device(torch.device("cuda:0"))
+    
+def get_minimum_axis(scales, rotations):
+    sorted_idx = torch.argsort(scales, descending=False, dim=-1)
+    R = build_rotation(rotations)
+    R_sorted = torch.gather(R, dim=2, index=sorted_idx[:,None,:].repeat(1, 3, 1)).squeeze()
+    x_axis = R_sorted[:,0,:] # normalized by defaut
+
+    return x_axis
+
+def flip_align_view(normal, viewdir):
+    # normal: (N, 3), viewdir: (N, 3)
+    dotprod = torch.sum(normal * -viewdir, dim=-1, keepdims=True) # (N, 1)
+    non_flip = dotprod>=0 # (N, 1)
+    normal_flipped = normal*torch.where(non_flip, 1, -1) # (N, 3)
+    return normal_flipped, non_flip

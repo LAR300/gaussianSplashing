@@ -312,7 +312,7 @@ if __name__ == "__main__":
     clean_dir = os.path.join('uw_formation', 'clean_bs')
     depth_gs_dir = os.path.join('uw_formation', 'depth_gs')
     depth_text_dir = os.path.join('uw_formation', 'depth_text')
-    input_image_name = "MTN_1107"
+    input_image_name = "MTN_1307"
     ext = ".png"
     # input_image_name = "DSC01784"
     # ext = ".jpg"
@@ -326,9 +326,9 @@ if __name__ == "__main__":
     #output_image_name_cleanbs = f"{input_image_name}_bs_clean.png"
     image = load_image(input_image)#load_image(input_image)
     image_depth = None
-    iters = 7000
-    image_depth = load_image(os.path.join(depth_gs_dir, f"{input_image_name}_gs{iters}_depth{ext}"),depth=True)
-    matrix_to_text(image_depth, os.path.join(depth_text_dir, f"{input_image_name}_gs{iters}_depth.txt"))
+    iters = 50000
+    #image_depth = load_image(os.path.join(depth_gs_dir, f"{input_image_name}_gs{iters}_depth{ext}"),depth=True)
+    #matrix_to_text(image_depth, os.path.join(depth_text_dir, f"{input_image_name}_gs{iters}_depth.txt"))
     
     clean_from_bs, bs_image, bs_dict, image_depth = preform_full_bs_removal(image, bs_dict=None, image_depth=image_depth, return_depth=True)
 
