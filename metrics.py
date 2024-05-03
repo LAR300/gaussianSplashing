@@ -84,8 +84,8 @@ def evaluate(scene_dir, red_flag=True, top_left_x=850, top_left_y=15, width=300,
         per_view_dict_polytopeonly[scene_dir] = {}
 
         
-        for set_name in ["train"]:
-        #for set_name in ["train", "eval"]:
+        #for set_name in ["train"]:
+        for set_name in ["train", "eval"]:
             print("Set:", set_name)
 
             full_dict[scene_dir][set_name] = {}

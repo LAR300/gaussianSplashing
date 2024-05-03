@@ -69,10 +69,9 @@ if not args.skip_matching:
         logging.error(f"Mapper failed with code {exit_code}. Exiting.")
         exit(exit_code)
 
-### Image undistortion
-## We need to undistort our images into ideal pinhole intrinsics.
+
 img_undist_cmd = (colmap_command + " image_undistorter \
-    --image_path " + args.source_path + "/" + args.images_dir + " \
+    --image_path " + args.source_path + "/" + "/input \
     --input_path " + args.source_path + "/distorted/sparse/0 \
     --output_path " + args.source_path + "\
     --output_type COLMAP")
@@ -136,14 +135,14 @@ if(args.resize):
 
         destination_file = os.path.join(args.source_path, "images_2", file)
         shutil.copy2(source_file, destination_file)
-        resize_and_save(destination_file, factor=0.5, magick_flag=args.magick_flage, magick_command=magick_command)
+        resize_and_save(destination_file, factor=0.5, magick_flag=args.magick_flag, magick_command=magick_command)
 
         destination_file = os.path.join(args.source_path, "images_4", file)
         shutil.copy2(source_file, destination_file)
-        resize_and_save(destination_file, factor=0.25, magick_flag=args.magick_flage, magick_command=magick_command)
+        resize_and_save(destination_file, factor=0.25, magick_flag=args.magick_flag, magick_command=magick_command)
 
         destination_file = os.path.join(args.source_path, "images_8", file)
         shutil.copy2(source_file, destination_file)
-        resize_and_save(destination_file, factor=0.125, magick_flag=args.magick_flage, magick_command=magick_command)
+        resize_and_save(destination_file, factor=0.125, magick_flag=args.magick_flag, magick_command=magick_command)
 
 print("Done.")
