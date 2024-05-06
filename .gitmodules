@@ -13,3 +13,6 @@
 [submodule "SIBR_viewers"]
 	path = SIBR_viewers
 	url = https://gitlab.inria.fr/sibr/sibr_core.git
+[submodule "submodules/diff-gaussian-rasterization_UW"]
+	path = submodules/diff-gaussian-rasterization_UW
+	url = https://github.com/BGU-CS-VIL/diff-gaussian-rasterization_UW.git
