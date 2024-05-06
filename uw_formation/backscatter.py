@@ -168,6 +168,12 @@ def create_backscatter_image(z, bs_dict):
     y = np.stack(y, axis=-1)
     return y
 
+def create_Dcmul_image(z, bs_dict):
+    bcd = bs_dict['betac_d']
+    y = [1 * (np.exp(-bcd[i] * z)) for i in range(bcd.shape[0])]
+    y = np.stack(y, axis=-1)
+    return y
+
 def clean_bs_image(I, bs_image):
     return I - bs_image
 
@@ -219,12 +225,29 @@ def save_image(filename, image, depth=False):
         # image = (image * 255).astype(np.uint8) 
         # cv2.imwrite(filename, image)
         return
-    if np.max(image) <= 1:
+    if np.max(image) <= 2:
+        image = np.clip(image, 0.0, 1.0)
         image = (image * 255).astype(np.uint8) 
     if image.shape[0] in [1,2,3] and image.ndim >2:
         image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # RGB->BGR
     cv2.imwrite(filename, image)
+
+def preform_full_bds_addition(Jc, bs_dict, image_depth=None):
+    transpose_chw = False
+    if Jc.shape[0] in [1,2,3]:
+        transpose_chw = True
+        Jc = np.transpose(Jc, (1, 2, 0)) # transpose CHW -> HWC
+    if image_depth is None or image_depth.shape != Jc.shape[:2]:
+        image_depth = depth_estimation(Jc) # using midas depth estimation
+    Dcmul = create_Dcmul_image(image_depth, bs_dict)
+    Dc = Jc * Dcmul
+    bs_image = create_backscatter_image(image_depth, bs_dict)
+    Ic = add_bs_image(Dc, bs_image)
+    if transpose_chw:
+        # transpose HWC -> CHW
+        Ic = np.transpose(Ic, (2, 0, 1))
+    return Ic, image_depth, bs_image
 
 def preform_full_bs_addition(Dc, bs_dict, image_depth=None):
     transpose_chw = False
@@ -238,7 +261,7 @@ def preform_full_bs_addition(Dc, bs_dict, image_depth=None):
     if transpose_chw:
         # transpose HWC -> CHW
         Ic = np.transpose(Ic, (2, 0, 1))
-    return Ic
+    return Ic, image_depth, bs_image
 
 def preform_full_bs_removal(image, bs_dict=None, image_depth=None, return_depth=False):
     transpose_chw = False
@@ -273,12 +296,18 @@ def preform_full_bs_removal_path(input_image_path, output_image_path, image_dept
     
 
 
-def preform_bs_on_dir(input_dir, output_dir):
+def preform_bsaddition_on_dir(input_dir, output_dir):
     for file in os.listdir(input_dir):
-        if file.endswith(".png") or file.endswith(".jpg") or file.endswith(".jpeg"):
+        if file.endswith(".png") or file.endswith(".jpg") or file.endswith(".jpeg") or file.endswith(".JPG"):
+            print(f'Processing {file}...')
             input_image = os.path.join(input_dir,file)
             output_image = os.path.join(output_dir,file)
-            preform_full_bs_removal_path(input_image, output_image)
+            bs_dict = {"Bc_inf": np.array([0.07,0.2,0.39]),
+                "betac_b": np.array([0.95, 0.85, 0.7]),
+                "betac_d": np.array([0.13, 0.12, 0.09])}
+            image = load_image(input_image)
+            Ic, _, _ = preform_full_bds_addition(image, bs_dict, image_depth=None)
+            save_image(output_image, Ic)
             print(f'Processing {file} done')
 
 def image_to_matrix(img_gray):
@@ -304,16 +333,21 @@ def matrix_to_text(pixel_matrix, output_file):
    with open(output_file, 'w') as f:
         for row in pixel_matrix:
             f.write(' '.join(map(str, row)) + '\n') 
-            
-if __name__ == "__main__":
+
+    
+    # seathru_nerf_data_dir = os.path.join('data', 'SeathruNeRF_dataset')
+    # preform_bs_on_dir(os.path.join(seathru_nerf_data_dir, 'Panama', 'images_wb'), os.path.join(seathru_nerf_data_dir, 'Panama', 'Panama_images_without_bs'))
+    
+def main_run():
     whiteblancing_dir = os.path.join('uw_formation', 'white_balancing')
     bs_dir = os.path.join('uw_formation', 'bs_estimation')
     depth_dir = os.path.join('uw_formation', 'depth_estimation')
+    add_dir = os.path.join('uw_formation', 'add_bs')
     clean_dir = os.path.join('uw_formation', 'clean_bs')
     depth_gs_dir = os.path.join('uw_formation', 'depth_gs')
     depth_text_dir = os.path.join('uw_formation', 'depth_text')
-    input_image_name = "MTN_1307"
-    ext = ".png"
+    input_image_name = "IMG_4026"
+    ext = ".JPG"
     # input_image_name = "DSC01784"
     # ext = ".jpg"
     input_depth = None
@@ -322,6 +356,8 @@ if __name__ == "__main__":
     #input_depth = os.path.join(depth_gs_dir,f"train_{input_image_name}_30000.png")
     output_image_name_depth = f"{input_image_name}_depth.png"
     output_image_name_cleanbs = f"{input_image_name}_nonbs.png"
+    output_image_name_addbs = f"{input_image_name}_uw.png"
+    output_image_name_addbs_fog = f"{input_image_name}_fog.png"
     output_image_name_bs = f"{input_image_name}_bs.png"
     #output_image_name_cleanbs = f"{input_image_name}_bs_clean.png"
     image = load_image(input_image)#load_image(input_image)
@@ -330,12 +366,24 @@ if __name__ == "__main__":
     #image_depth = load_image(os.path.join(depth_gs_dir, f"{input_image_name}_gs{iters}_depth{ext}"),depth=True)
     #matrix_to_text(image_depth, os.path.join(depth_text_dir, f"{input_image_name}_gs{iters}_depth.txt"))
     
-    clean_from_bs, bs_image, bs_dict, image_depth = preform_full_bs_removal(image, bs_dict=None, image_depth=image_depth, return_depth=True)
 
-    save_image(os.path.join(clean_dir,output_image_name_cleanbs), clean_from_bs)
-    save_image(os.path.join(depth_dir,output_image_name_depth), image_depth)
+
+    # clean_from_bs, bs_image, bs_dict, image_depth = preform_full_bs_removal(image, bs_dict=None, image_depth=image_depth, return_depth=True)
+    # save_image(os.path.join(clean_dir,output_image_name_cleanbs), clean_from_bs)
+
+    bs_dict = {"Bc_inf": np.array([0.07,0.2,0.39]),
+                "betac_b": np.array([0.95, 0.85, 0.7]),
+                "betac_d": np.array([0.13, 0.12, 0.09])}
+    Ic, image_depth, bs_image = preform_full_bds_addition(image, bs_dict, image_depth=None)
+    save_image(os.path.join(add_dir,output_image_name_addbs), Ic)
+    bs_dict_fog = {"Bc_inf": np.array([0.07,0.2,0.39]),
+                "betac_b": np.array([1.2, 1.2, 1.2]),
+                "betac_d": np.array([1.2, 1.2, 1.2])}
+    # Ic_fog, image_depth, bs_image= preform_full_bds_addition(image, bs_dict_fog, image_depth=None)
+    # save_image(os.path.join(add_dir,output_image_name_addbs_fog), Ic_fog)
+
+    save_image(os.path.join(depth_dir,output_image_name_depth), image_depth, depth=True)
     save_image(os.path.join(bs_dir,output_image_name_bs), bs_image)
-
     print(f'bs_dict: {bs_dict}')
     print(f'Processing {input_image_name} done')
     #preform_full_bs_removal_path(input_image, os.path.join(bs_dir,output_image_name_cleanbs), image_depth=load_image(input_depth, depth=True))
@@ -343,3 +391,6 @@ if __name__ == "__main__":
     
     # seathru_nerf_data_dir = os.path.join('data', 'SeathruNeRF_dataset')
     # preform_bs_on_dir(os.path.join(seathru_nerf_data_dir, 'Panama', 'images_wb'), os.path.join(seathru_nerf_data_dir, 'Panama', 'Panama_images_without_bs'))
+
+if __name__ == "__main__":
+    preform_bsaddition_on_dir(os.path.join('data', 'SeathruNeRF_dataset', 'Fern', 'images'), os.path.join('data', 'SeathruNeRF_dataset', 'Fern', 'imagesUW'))

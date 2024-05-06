@@ -68,7 +68,7 @@ def draw_box(images_dir, top_left_x, top_left_y, width, height):
         saveImageSpecial(image_to_save=image, origin_image_path=image_path, str_addition="redsquare")
         image.close()
 
-def evaluate(scene_dir, red_flag=True, top_left_x=850, top_left_y=15, width=300, height=150):
+def evaluate(scene_dir, top_left_x=850, top_left_y=15, width=300, height=150):
     scene_dir = scene_dir[0]
     full_dict = {}
     per_view_dict = {}
@@ -85,51 +85,54 @@ def evaluate(scene_dir, red_flag=True, top_left_x=850, top_left_y=15, width=300,
 
         
         #for set_name in ["train"]:
-        for set_name in ["train", "eval"]:
-            print("Set:", set_name)
+        for red_flag in [False, True]:
+            for set_name in ["train", "eval"]:
+                print("Set:", set_name)
+                set_key = set_name + '_!redsquare!' if red_flag else set_name
+                full_dict[scene_dir][set_key] = {}
+                per_view_dict[scene_dir][set_key] = {}
 
-            full_dict[scene_dir][set_name] = {}
-            per_view_dict[scene_dir][set_name] = {}
-            full_dict_polytopeonly[scene_dir][set_name] = {}
-            per_view_dict_polytopeonly[scene_dir][set_name] = {}
-
-            set_dir = Path(scene_dir) / set_name
-            gt_dir = set_dir/ "gt"
-            renders_dir = set_dir / "renders"
-            red_flag_str = "_!redsquare!" if red_flag else ""
-            print("  Red flag:", red_flag)
-            if red_flag:
-                draw_box(gt_dir, top_left_x, top_left_y, width, height)
-                draw_box(renders_dir, top_left_x, top_left_y, width, height)
-            renders, gts, image_names = readImages(renders_dir, gt_dir, red_flag, top_left_x, top_left_y, width, height)
-
-            ssims = []
-            psnrs = []
-            lpipss = []
-
-            for idx in tqdm(range(len(renders)), desc=f"Metric evaluation progress {red_flag_str}"):
-                ssims.append(ssim(renders[idx], gts[idx]))
-                psnrs.append(psnr(renders[idx], gts[idx]))
-                lpipss.append(lpips(renders[idx], gts[idx], net_type='vgg'))
-
-            print("  SSIM : {:>12.7f}".format(torch.tensor(ssims).mean(), ".5"))
-            print("  PSNR : {:>12.7f}".format(torch.tensor(psnrs).mean(), ".5"))
-            print("  LPIPS: {:>12.7f}".format(torch.tensor(lpipss).mean(), ".5"))
+                set_dir = Path(scene_dir) / set_name
+                gt_dir = set_dir/ "gt"
+                renders_dir = set_dir / "renders"
+                print("  Red flag:", red_flag)
+                if red_flag:
+                    draw_box(gt_dir, top_left_x, top_left_y, width, height)
+                    draw_box(renders_dir, top_left_x, top_left_y, width, height)
+                eval_images(scene_dir, top_left_x, top_left_y, width, height, full_dict, per_view_dict, red_flag, set_key, gt_dir, renders_dir)
             print("")
 
-            full_dict[scene_dir][set_name].update({"SSIM": torch.tensor(ssims).mean().item(),
-                                                    "PSNR": torch.tensor(psnrs).mean().item(),
-                                                    "LPIPS": torch.tensor(lpipss).mean().item()})
-            per_view_dict[scene_dir][set_name].update({"SSIM": {name: ssim for ssim, name in zip(torch.tensor(ssims).tolist(), image_names)},
-                                                        "PSNR": {name: psnr for psnr, name in zip(torch.tensor(psnrs).tolist(), image_names)},
-                                                        "LPIPS": {name: lp for lp, name in zip(torch.tensor(lpipss).tolist(), image_names)}})
-
-        with open(scene_dir + f"/results{red_flag_str}.json", 'w') as fp:
+        with open(scene_dir + f"/results.json", 'w') as fp:
             json.dump(full_dict[scene_dir], fp, indent=True)
-        with open(scene_dir + f"/per_view{red_flag_str}.json", 'w') as fp:
+        with open(scene_dir + f"/per_view.json", 'w') as fp:
             json.dump(per_view_dict[scene_dir], fp, indent=True)
     except:
         print("Unable to compute metrics for model", scene_dir)
+
+def eval_images(scene_dir, top_left_x, top_left_y, width, height, full_dict, per_view_dict, red_flag, set_key, gt_dir, renders_dir):
+    
+    renders, gts, image_names = readImages(renders_dir, gt_dir, red_flag, top_left_x, top_left_y, width, height)
+
+    ssims = []
+    psnrs = []
+    lpipss = []
+
+    for idx in tqdm(range(len(renders)), desc=f"Metric evaluation progress"):
+        ssims.append(ssim(renders[idx], gts[idx]))
+        psnrs.append(psnr(renders[idx], gts[idx]))
+        lpipss.append(lpips(renders[idx], gts[idx], net_type='vgg'))
+
+    print("  SSIM : {:>12.7f}".format(torch.tensor(ssims).mean(), ".5"))
+    print("  PSNR : {:>12.7f}".format(torch.tensor(psnrs).mean(), ".5"))
+    print("  LPIPS: {:>12.7f}".format(torch.tensor(lpipss).mean(), ".5"))
+    print("")
+
+    full_dict[scene_dir][set_key].update({"SSIM": torch.tensor(ssims).mean().item(),
+                                                            "PSNR": torch.tensor(psnrs).mean().item(),
+                                                            "LPIPS": torch.tensor(lpipss).mean().item()})
+    per_view_dict[scene_dir][set_key].update({"SSIM": {name: ssim for ssim, name in zip(torch.tensor(ssims).tolist(), image_names)},
+                                                                "PSNR": {name: psnr for psnr, name in zip(torch.tensor(psnrs).tolist(), image_names)},
+                                                                "LPIPS": {name: lp for lp, name in zip(torch.tensor(lpipss).tolist(), image_names)}})
 
 if __name__ == "__main__":
     device = torch.device("cuda:0")

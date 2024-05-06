@@ -24,20 +24,21 @@ def loss_func(iteration, image, gt_image, opt, uw_flag=None, render_pkg=None, bs
     Ll2 = l2_loss(image, gt_image).detach()
     Psnr = psnr(image, gt_image).mean().double().detach()
     loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+    #loss = 0.6 * Ll1 + 0.4 * (1.0 - ssim(image, gt_image))
     if uw_flag.startswith("HYB"): 
         
-        if iteration > opt.densify_from_iter:
-            binf = render_pkg["binf"]
-            bs = render_pkg["bs"]
-            depth_map = render_pkg["rendered_depth"]
-            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gt=gt_image, image_depth=depth_map, binf=binf, bs=bs, bs_dict=bs_dict)
-            if uw_flag == "HYBNORMAL":
-                predicted_normal_loss_val = predicted_normal_loss(render_pkg["normal"], render_pkg["normal_ref"], alpha=None)#render_pkg["alpha"])
-                if "delta_normal_norm" not in render_pkg.keys() and opt.lambda_delta_reg>0: assert()
-                if "delta_normal_norm" in render_pkg.keys():
-                    delta_reg_loss_val = delta_normal_loss(render_pkg["delta_normal_norm"], alpha=None)# render_pkg["alpha"])
-                zero_one_loss_val = zero_one_loss(render_pkg["alpha"])
-                loss += opt.lambda_predicted_normal * predicted_normal_loss_val + opt.lambda_delta_reg * delta_reg_loss_val + opt.lambda_zero_one * zero_one_loss_val
+        # if iteration > opt.densify_from_iter:
+        binf = render_pkg["binf"]
+        bs = render_pkg["bs"]
+        depth_map = render_pkg["rendered_depth"]
+        loss += opt.lambda_bsest * bs_loss(iteration=iteration, gt=gt_image, image_depth=depth_map, binf=binf, bs=bs, bs_dict=bs_dict)
+        if uw_flag == "HYBNORMAL":
+            predicted_normal_loss_val = predicted_normal_loss(render_pkg["normal"], render_pkg["normal_ref"], alpha=None)#render_pkg["alpha"])
+            if "delta_normal_norm" not in render_pkg.keys() and opt.lambda_delta_reg>0: assert()
+            if "delta_normal_norm" in render_pkg.keys():
+                delta_reg_loss_val = delta_normal_loss(render_pkg["delta_normal_norm"], alpha=None)# render_pkg["alpha"])
+            zero_one_loss_val = zero_one_loss(render_pkg["alpha"])
+            loss += opt.lambda_predicted_normal * predicted_normal_loss_val + opt.lambda_delta_reg * delta_reg_loss_val + opt.lambda_zero_one * zero_one_loss_val
             
         
     return loss, Ll1, Ll2, Psnr
@@ -50,7 +51,7 @@ def l2_loss(network_output, gt):
 
 def bs_loss(iteration, gt, image_depth, binf, bs, bs_dict=None):
     curr_bs_dict = bs_dict
-    if iteration%1000 == 0:
+    if iteration == 1 or iteration%1000 == 0:
         _, _, curr_bs_dict = preform_full_bs_removal(gt.cpu().numpy(), bs_dict=None, image_depth=image_depth.detach().cpu().numpy().squeeze(axis=0), return_depth=False)
     if curr_bs_dict is None or not bool(curr_bs_dict):
         return 0.0

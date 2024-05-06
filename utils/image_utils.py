@@ -78,7 +78,7 @@ def apply_depth_colormap(depth, cmap="turbo", min=None, max=None):
     depth = (depth - near_plane) / (far_plane - near_plane + 1e-10)
     depth = torch.clip(depth, 0, 1)
 
-    colored_image = apply_colormap(depth, cmap="viridis")
+    colored_image = apply_colormap(depth, cmap="turbo")
     return colored_image
 
 def erode(img_in, erode_size=4):
