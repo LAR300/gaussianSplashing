@@ -51,7 +51,7 @@ def l2_loss(network_output, gt):
 
 def bs_loss(iteration, gt, image_depth, binf, bs, bs_dict=None):
     curr_bs_dict = bs_dict
-    if iteration == 1 or iteration%1000 == 0:
+    if iteration%2000 == 0:
         _, _, curr_bs_dict = preform_full_bs_removal(gt.cpu().numpy(), bs_dict=None, image_depth=image_depth.detach().cpu().numpy().squeeze(axis=0), return_depth=False)
     if curr_bs_dict is None or not bool(curr_bs_dict):
         return 0.0

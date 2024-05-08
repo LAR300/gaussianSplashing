@@ -271,7 +271,7 @@ def training_report(iteration, Ll1, loss, l1_loss,
                             depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy()
                         rendered_J = torch.clamp(render_pkg["rendered_J"], 0.0, 1.0)
                         rendered_backscattering = torch.clamp(render_pkg["rendered_backscattering"], 0.0, 1.0)
-                        # rendered_backscattering = torch.clip((render_pkg["rendered_backscattering"] - render_pkg["rendered_backscattering"].min()) / (render_pkg["rendered_backscattering"].max() - render_pkg["rendered_backscattering"].min()), 0.0, 1.0)
+                        #rendered_backscattering = torch.clip((render_pkg["rendered_backscattering"] - render_pkg["rendered_backscattering"].min()) / (render_pkg["rendered_backscattering"].max() - render_pkg["rendered_backscattering"].min()), 0.0, 1.0)
                        
                     
                         if  uw_tuple[1].removal_using_monocular_depth:

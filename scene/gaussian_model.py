@@ -283,13 +283,13 @@ class GaussianModel:
         if self.uw_flag.startswith("HYB"):
             # start addition uw
             zero_3 = torch.zeros((1, 3), device="cuda")
-            direct_ini = torch.Tensor([[0.16,0.14,0.11]]).cuda()
-            self._direct = nn.Parameter(zero_3).contiguous().requires_grad_(True)  # (1,3)
-            #binf_ini = torch.Tensor([[0.12,0.14,0.17]]).cuda()
-            binf_ini = torch.Tensor([[0.15,0.2,0.25]]).cuda()
+            direct_ini = torch.Tensor([[0.007,0.008,0.008]]).cuda()
+            self._direct = nn.Parameter(direct_ini).contiguous().requires_grad_(True)  # (1,3)
+            binf_ini = torch.Tensor([0.0611105 , 0.09450259, 0.14404887]).cuda()
+            #binf_ini = torch.Tensor([0.15113972, 0.23778467, 0.25      ]).cuda()
             self._binf = nn.Parameter(binf_ini).contiguous().requires_grad_(True)  # (1,3)
-            # bs_ini = torch.Tensor([[0.16,0.14,0.11]]).cuda()
-            bs_ini = torch.Tensor([[0.25,0.18,0.15]]).cuda()
+            bs_ini = torch.Tensor([0.25      , 0.06863068, 0.03780112]).cuda()
+            #bs_ini = torch.Tensor([0.25, 0.12123746, 0.15481124]).cuda()
             self._bs = nn.Parameter(bs_ini.contiguous().requires_grad_(True)) # (1,3)
             if self.uw_flag == "HYBNORMAL":
                 normals = np.zeros_like(np.asarray(pcd.points, dtype=np.float32))
