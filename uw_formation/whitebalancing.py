@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
 import os
 from PIL import Image
+from skimage import exposure
 
 def compensate_RB(image, flag):
     """
@@ -61,37 +62,58 @@ def compensate_RB(image, flag):
     compensateIM = cv2.merge([imageR, imageG, imageB])
 
     return compensateIM
-        
-# Splitting the image into R, G and B components
-def gray_world(image):
-    # Split the image into B, G, and R components
-    imageB, imageG, imageR = cv2.split(image)
-    
-    # Form a grayscale image
-    imagegray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    
-    # Convert to array
-    imageR = np.array(imageR, dtype=np.float64)
-    imageG = np.array(imageG, dtype=np.float64)
-    imageB = np.array(imageB, dtype=np.float64)
-    imageGray = np.array(imagegray, dtype=np.float64)
+def gray_world(input_dir, output_dir):
+    # Create output directory if it doesn't exist
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-    # Get the mean value of pixels
-    meanR = np.mean(imageR)
-    meanG = np.mean(imageG)
-    meanB = np.mean(imageB)
-    meanGray = np.mean(imageGray)
+    # Get list of input image files
+    image_files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
 
-    # Gray World Algorithm
-    imageR = (imageR * meanGray / meanR).clip(0, 255).astype(np.uint8)
-    imageG = (imageG * meanGray / meanG).clip(0, 255).astype(np.uint8)
-    imageB = (imageB * meanGray / meanB).clip(0, 255).astype(np.uint8)
+    for image_file in image_files:
+        # Open image
+        img_path = os.path.join(input_dir, image_file)
+        img = Image.open(img_path)
 
-    # Merge the channels back together
-    whitebalancedIm = cv2.merge([imageR, imageG, imageB])
+        # Convert image to numpy array
+        img_array = np.array(img)
 
-    # Return result image
-    return whitebalancedIm
+        # Apply histogram equalization to improve contrast
+        img_array_eq = exposure.equalize_hist(img_array)
+
+        # # Calculate average R, G, and B values after histogram equalization
+        # avg_r = np.mean(img_array_eq[:,:,0])
+        # avg_g = np.mean(img_array_eq[:,:,1])
+        # avg_b = np.mean(img_array_eq[:,:,2])
+
+        # # Handle division by zero
+        # if avg_r == 0 or avg_g == 0 or avg_b == 0:
+        #     print(f"Warning: Division by zero for image {image_file}")
+        #     continue
+
+        # # Calculate gray world factor
+        # gray_world_factor = (avg_r + avg_g + avg_b) / 3
+
+        # # Scale R, G, and B channels
+        # scaled_r = img_array_eq[:,:,0] * (gray_world_factor / avg_r)
+        # scaled_g = img_array_eq[:,:,1] * (gray_world_factor / avg_g)
+        # scaled_b = img_array_eq[:,:,2] * (gray_world_factor / avg_b)
+        scaled_r = img_array_eq[:,:,0]
+        scaled_g = img_array_eq[:,:,1]
+        scaled_b = img_array_eq[:,:,2]
+
+        # Stack scaled channels into RGB image
+        balanced_img_array = np.stack([scaled_r, scaled_g, scaled_b], axis=2)
+
+        # Clip values to [0, 255] range
+        balanced_img_array = np.clip(balanced_img_array, 0, 255)
+        balanced_img_array = (balanced_img_array * 255).astype(np.uint8)
+        # Convert numpy array back to image
+        balanced_img = Image.fromarray(balanced_img_array.astype(np.uint8))
+
+        # Save balanced image
+        output_path = os.path.join(output_dir, image_file)
+        balanced_img.save(output_path)
 
 def white_balance_gray_avg(image):
     """
@@ -134,26 +156,26 @@ def white_balance_gray_avg(image):
 
     return white_balanced_image
 
-def wb_precentile(imagesPath, outImagesPath):
+def wb_precentile(imagesPath, outImagesPath, precentile=99.8):
     imageList = os.listdir(imagesPath)
     imageNum = len(imageList)
     scale = (1384, 918)
-    imageVec = np.zeros((scale[1], scale[0], 3, imageNum-3))
+    imageVec = np.zeros((scale[1], scale[0], 3, imageNum))
     imageVecNum = imageVec.shape[-1]
 
     for imageIdx in range(imageVecNum):
-        img = Image.open(os.path.join(imagesPath, imageList[imageIdx+3]))
+        img = Image.open(os.path.join(imagesPath, imageList[imageIdx]))
         img = img.resize(scale)
         img = np.array(img) / 255.0  # Convert image to double
         imageVec[:, :, :, imageIdx] = img
 
-    wb = np.percentile(imageVec, 99.8, axis=(0, 1, 3))
+    wb = np.percentile(imageVec, precentile, axis=(0, 1, 3))
 
     for imageIdx in range(imageVecNum):
         currImage = imageVec[:, :, :, imageIdx] / wb
         currImage = (currImage * 255).astype(np.uint8)  # Convert back to uint8
         img = Image.fromarray(currImage)
-        img.save(os.path.join(outImagesPath, f"{imageList[imageIdx+3]}"))
+        img.save(os.path.join(outImagesPath, f"{imageList[imageIdx]}"))
         
         
 if __name__ == "__main__":
@@ -171,9 +193,10 @@ if __name__ == "__main__":
 
     #balanced_image = white_balance_gray_avg(balanced_image)
     
-    imagesPath = os.path.join("data", "DeryaCamera_18_07_23", "jpg" , "images")
-    outImagesPath = os.path.join("data", "DeryaCamera_18_07_23", "jpg" , "images_wb")
+    imagesPath = os.path.join("data", "IUITable", "images")
+    outImagesPath = os.path.join("data", "IUITable", "images_wb")
     
     # imagesPath = os.path.join("data", "SeathruNeRF_dataset", "JapaneseGardens-RedSea-notWB" , "images")
     # outImagesPath = os.path.join("data", "SeathruNeRF_dataset", "JapaneseGardens-RedSea-notWB" , "images_wb")
-    wb_precentile(imagesPath, outImagesPath)
+    gray_world(imagesPath, outImagesPath)
+    #wb_precentile(outImagesPath, outImagesPath, 99.8)

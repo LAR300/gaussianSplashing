@@ -170,11 +170,13 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     rendering = rendering_pkg["render"]
                     rendering_J = rendering_pkg["rendered_J"]
                     rendering_Bs = rendering_pkg["rendered_backscattering"]
+                    rendering_depth = rendering_pkg["rendered_depth"]
                     gt = viewpoint_cam.original_image[0:3, :, :]
                     scene.scene_save_image(gt, viewpoint_cam.image_name, os.path.join("train","gt"))
                     scene.scene_save_image(rendering, viewpoint_cam.image_name, os.path.join("train","renders"))
                     scene.scene_save_image(rendering_J, viewpoint_cam.image_name, os.path.join("train","rendered_J"))
                     scene.scene_save_image(rendering_Bs, viewpoint_cam.image_name, os.path.join("train","rendered_backscattering"))
+                    scene.scene_save_image(rendering_depth, viewpoint_cam.image_name, os.path.join("train","rendered_depth"))
                 viewpoint_stack = scene.getTestCameras().copy()
                 execution_time_lst = []
                 for viewpoint_cam in viewpoint_stack:
@@ -185,6 +187,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     rendering = rendering_pkg["render"]
                     rendering_J = rendering_pkg["rendered_J"]
                     rendering_Bs = rendering_pkg["rendered_backscattering"]
+                    rendering_depth = rendering_pkg["rendered_depth"]
                     end_time = time.time()
                     execution_time_lst.append(end_time - start_time)
                     gt = viewpoint_cam.original_image[0:3, :, :]
@@ -192,6 +195,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     scene.scene_save_image(rendering, viewpoint_cam.image_name, os.path.join("eval","renders"))
                     scene.scene_save_image(rendering_J, viewpoint_cam.image_name, os.path.join("eval","rendered_J"))
                     scene.scene_save_image(rendering_Bs, viewpoint_cam.image_name, os.path.join("eval","rendered_backscattering"))
+                    scene.scene_save_image(rendering_depth, viewpoint_cam.image_name, os.path.join("eval","rendered_depth"))
                 fps = sum(execution_time_lst) / len(execution_time_lst) 
                 print("Execution (render eval) time:", fps, "seconds")
                 scene.scene_save_fps("Frame Per Second (render eval): " + str(fps))
