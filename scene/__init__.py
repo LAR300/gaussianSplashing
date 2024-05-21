@@ -92,7 +92,9 @@ class Scene:
         os.makedirs(dir_path, exist_ok=True)
         img_path = os.path.join(dir_path, f"{img_name}.png")
         torchvision.utils.save_image(img, img_path)
-
+    def scene_save_fps(self, fps_str):
+        with open(os.path.join(self.model_path,"fps.txt"), 'w') as f:
+                    f.write(fps_str)
     def getTrainCameras(self, scale=1.0):
         return self.train_cameras[scale]
 

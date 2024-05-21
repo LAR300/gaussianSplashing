@@ -97,11 +97,11 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
 
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
         image_name = os.path.basename(image_path).split(".")[0]
-        image = load_image(image_path)
-
-        cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height)
-        cam_infos.append(cam_info)
+        if os.path.basename(extr.name) in os.listdir(images_folder):
+            image = load_image(image_path)
+            cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
+                                image_path=image_path, image_name=image_name, width=width, height=height)
+            cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
 
@@ -145,12 +145,21 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
     reading_dir = "images" if images == None else images
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
-
+    #all_idx = range(2, 10)
+    all_idx = range(len(cam_infos))
+    #eval_idx = [0, 4, 19] # Japanease Gardens
+    #eval_idx = [2, 7, 14] # Panama
+    #eval_idx = [1, 9, 20] # Curasao
+    #eval_idx = [0, 8, 16, 24, 32, 40, 48] # IUITable
+    
+    
     if eval:
         train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
         test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        # train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in eval_idx and idx in all_idx]
+        # test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in eval_idx and idx in all_idx]
     else:
-        train_cam_infos = cam_infos
+        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in all_idx]
         test_cam_infos = []
 
     nerf_normalization = getNerfppNorm(train_cam_infos)

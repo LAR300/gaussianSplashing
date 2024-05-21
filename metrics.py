@@ -64,11 +64,11 @@ def draw_box(images_dir, top_left_x, top_left_y, width, height):
         top_left = (top_left_x, top_left_y)
         bottom_right = (top_left_x + width, top_left_y + height)
         # Draw the box on the image
-        draw.rectangle([top_left, bottom_right], outline="red", width=2)
+        draw.rectangle([top_left, bottom_right], outline="red", width=8)
         saveImageSpecial(image_to_save=image, origin_image_path=image_path, str_addition="redsquare")
         image.close()
 
-def evaluate(scene_dir, top_left_x=850, top_left_y=15, width=300, height=150):
+def evaluate(scene_dir, top_left_x=350, top_left_y=125, width=300, height=150):
     scene_dir = scene_dir[0]
     full_dict = {}
     per_view_dict = {}
@@ -86,7 +86,7 @@ def evaluate(scene_dir, top_left_x=850, top_left_y=15, width=300, height=150):
         
         #for set_name in ["train"]:
         for red_flag in [False, True]:
-            for set_name in ["train", "eval"]:
+            for set_name in ["eval"]:#["train", "eval"]:
                 print("Set:", set_name)
                 set_key = set_name + '_!redsquare!' if red_flag else set_name
                 full_dict[scene_dir][set_key] = {}
@@ -102,9 +102,11 @@ def evaluate(scene_dir, top_left_x=850, top_left_y=15, width=300, height=150):
                 eval_images(scene_dir, top_left_x, top_left_y, width, height, full_dict, per_view_dict, red_flag, set_key, gt_dir, renders_dir)
             print("")
 
-        with open(scene_dir + f"/results.json", 'w') as fp:
+        res_file = os.path.join(scene_dir, "results.json")
+        per_view_file = os.path.join(scene_dir, "per_view.json")
+        with open(res_file, 'w') as fp:
             json.dump(full_dict[scene_dir], fp, indent=True)
-        with open(scene_dir + f"/per_view.json", 'w') as fp:
+        with open(per_view_file, 'w') as fp:
             json.dump(per_view_dict[scene_dir], fp, indent=True)
     except:
         print("Unable to compute metrics for model", scene_dir)

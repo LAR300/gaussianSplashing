@@ -24,6 +24,8 @@ SIBR_viewers
 simple-knn
 diff-gaussian-rasterization_depthUW
 diff-gaussian-rasterization_UW
+diff-gaussian-rasterization_UWV2
 snapshot_*
 submodules/diff-gaussian-rasterization_UW
+submodules/diff-gaussian-rasterization_UWV2
 

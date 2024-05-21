@@ -112,8 +112,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         if uw_flag == "HYBDEPTH": 
             dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_opacity.shape[0], 1))
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True) # (N, 3)
-            normal, delta_normal = pc.get_normal(dir_pp_normalized=dir_pp_normalized, return_delta=True) # (N, 3) 
-            delta_normal_norm = delta_normal.norm(dim=1, keepdim=True)
+            if  uw_flag == "HYBNORMAL":
+                normal, delta_normal = pc.get_normal(dir_pp_normalized=dir_pp_normalized, return_delta=True) # (N, 3) 
+                delta_normal_norm = delta_normal.norm(dim=1, keepdim=True)
     if override_color is None: # usually None
         if pipe.convert_SHs_python: # usually False
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)

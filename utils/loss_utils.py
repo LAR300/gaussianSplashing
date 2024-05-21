@@ -31,7 +31,8 @@ def loss_func(iteration, image, gt_image, opt, uw_flag=None, render_pkg=None, bs
         binf = render_pkg["binf"]
         bs = render_pkg["bs"]
         depth_map = render_pkg["rendered_depth"]
-        loss += opt.lambda_bsest * bs_loss(iteration=iteration, gt=gt_image, image_depth=depth_map, binf=binf, bs=bs, bs_dict=bs_dict)
+        if opt.lambda_bsest > 0:
+            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gt=gt_image, image_depth=depth_map, binf=binf, bs=bs, bs_dict=bs_dict)
         if uw_flag == "HYBNORMAL":
             predicted_normal_loss_val = predicted_normal_loss(render_pkg["normal"], render_pkg["normal_ref"], alpha=None)#render_pkg["alpha"])
             if "delta_normal_norm" not in render_pkg.keys() and opt.lambda_delta_reg>0: assert()
