@@ -21,7 +21,7 @@ from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
-from utils.general_utils import save_image, load_image
+from utils.general_utils import save_image, load_image, load_mask
 
 
 class CameraInfo(NamedTuple):
@@ -99,6 +99,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         image_name = os.path.basename(image_path).split(".")[0]
         if os.path.basename(extr.name) in os.listdir(images_folder):
             image = load_image(image_path)
+            mask = load_mask(os.path.join(images_folder, "..", "..", "masks", image_name + ".png"))
             cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                                 image_path=image_path, image_name=image_name, width=width, height=height)
             cam_infos.append(cam_info)
@@ -145,12 +146,16 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
     reading_dir = "images" if images == None else images
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
-    #all_idx = range(2, 10)
-    all_idx = range(len(cam_infos))
+    # part
+    #all_idx = [1,2,3]
     #eval_idx = [0, 4, 19] # Japanease Gardens
     #eval_idx = [2, 7, 14] # Panama
     #eval_idx = [1, 9, 20] # Curasao
     #eval_idx = [0, 8, 16, 24, 32, 40, 48] # IUITable
+    
+    # complete
+    all_idx = range(len(cam_infos))
+    eval_idx = [-1]
     
     
     if eval:

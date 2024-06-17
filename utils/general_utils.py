@@ -28,6 +28,10 @@ def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
         if np.max(image) > 1:
             image = image / 255.0
         return image
+
+def load_mask(filename, code=cv2.IMREAD_GRAYSCALE):
+    return cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+    
     
        
 def save_image(filename, image_orig, depth=False):
@@ -51,6 +55,9 @@ def save_image(filename, image_orig, depth=False):
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # RGB->BGR
     cv2.imwrite(filename, image)
 
+def save_render_depth(img_path,img):
+    cv2.imwrite(img_path, cv2.cvtColor(img,cv2.COLOR_RGB2BGR)*255)
+    
 def save_imagePIL(img_path, image_orig):
     if type(image_orig) == torch.Tensor:
         image = image_orig.detach().cpu().numpy()
@@ -58,6 +65,8 @@ def save_imagePIL(img_path, image_orig):
             image = image.squeeze(0)
         except:
             pass
+    else:
+        image = image_orig
     if image.shape[0] in [1,2,3] and image.ndim >2:
         image = np.transpose(image, (1, 2, 0)) # transpose CHW -> HWC
     im = Image.fromarray(image)

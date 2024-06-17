@@ -12,7 +12,7 @@
 import os
 import random
 import json
-from utils.general_utils import save_image, save_imagePIL
+from utils.general_utils import save_image, save_imagePIL, save_render_depth
 from utils.system_utils import searchForMaxIteration
 from scene.dataset_readers import sceneLoadTypeCallbacks
 from scene.gaussian_model import GaussianModel
@@ -44,9 +44,9 @@ class Scene:
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval)
-        elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
-            print("Found transforms_train.json file, assuming Blender data set!")
-            scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)
+        # elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
+        #     print("Found transforms_train.json file, assuming Blender data set!")
+        #     scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)
         else:
             assert False, "Could not recognize scene type!"
 
@@ -87,11 +87,15 @@ class Scene:
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
         self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
 
-    def scene_save_image(self, img, img_name, subdir):
+    def scene_save_image(self, img, img_name, subdir, depth=False):
         dir_path = os.path.join(self.model_path, subdir)
         os.makedirs(dir_path, exist_ok=True)
         img_path = os.path.join(dir_path, f"{img_name}.png")
-        torchvision.utils.save_image(img, img_path)
+        if depth:
+            save_render_depth(img_path, img)
+           
+        else:
+            torchvision.utils.save_image(img, img_path)
     def scene_save_fps(self, fps_str):
         with open(os.path.join(self.model_path,"fps.txt"), 'w') as f:
                     f.write(fps_str)

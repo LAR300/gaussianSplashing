@@ -69,7 +69,7 @@ def draw_box(images_dir, top_left_x, top_left_y, width, height):
         image.close()
 
 def evaluate(scene_dir, top_left_x=350, top_left_y=125, width=300, height=150):
-    scene_dir = scene_dir[0]
+    #scene_dir = scene_dir[0]
     full_dict = {}
     per_view_dict = {}
     full_dict_polytopeonly = {}
