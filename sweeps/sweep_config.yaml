@@ -118,6 +118,8 @@ parameters:
       checkpoint_iterations:
         values: [[
         ]]  
+      save_for_metrics:
+        value: false
   UnderwaterParameters:
     parameters:
       remove_bs_from_images:

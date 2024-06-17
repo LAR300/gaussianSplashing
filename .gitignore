@@ -19,6 +19,7 @@ uw_formation/white_balancing
 uw_formation/clean_bs
 uw_formation/depth_text
 uw_formation/add_bs
+uw_formation/plots/*
 nohup*
 SIBR_viewers
 simple-knn

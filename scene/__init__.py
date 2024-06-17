@@ -12,13 +12,7 @@
 import os
 import random
 import json
-from PIL import Image
-
-import cv2
-import numpy as np
-import torch
-from utils.general_utils import save_image, save_imagePIL
-from utils.image_utils import apply_depth_colormap
+from utils.general_utils import save_image, save_imagePIL, save_render_depth
 from utils.system_utils import searchForMaxIteration
 from scene.dataset_readers import sceneLoadTypeCallbacks
 from scene.gaussian_model import GaussianModel
@@ -50,9 +44,9 @@ class Scene:
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval)
-        elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
-            print("Found transforms_train.json file, assuming Blender data set!")
-            scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)
+        # elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
+        #     print("Found transforms_train.json file, assuming Blender data set!")
+        #     scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)
         else:
             assert False, "Could not recognize scene type!"
 
@@ -93,50 +87,15 @@ class Scene:
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
         self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
 
-    def scene_save_image_depth(self, img, img_name, subdir):
+    def scene_save_image(self, img, img_name, subdir, depth=False):
         dir_path = os.path.join(self.model_path, subdir)
         os.makedirs(dir_path, exist_ok=True)
         img_path = os.path.join(dir_path, f"{img_name}.png")
-        img = apply_depth_colormap(img.detach().cpu().permute(1, 2, 0)).numpy()
-        img = (img * 255).astype(np.uint8) 
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR) # RGB->BGR
-        cv2.imwrite(img_path,img)
-        
-    def scene_save_image_j(self, img, img_name, subdir):
-        """
-        Save an image tensor in C*H*W format as a PNG file.
-        
-        :param img: Image tensor in C*H*W format.
-        :param img_name: Name of the image file to save.
-        :param subdir: Subdirectory under model_path where the image will be saved.
-        """
-        dir_path = os.path.join(self.model_path, subdir)
-        os.makedirs(dir_path, exist_ok=True)
-        img_path = os.path.join(dir_path, f"{img_name}.png")
-        
-        # Convert tensor to NumPy array and transpose to H*W*C format
-        if isinstance(img, np.ndarray):
-            img_np = img
+        if depth:
+            save_render_depth(img_path, img)
+           
         else:
-            img_np = img.cpu().numpy()
-        
-        # Transpose to H*W*C
-        img_np = np.transpose(img_np, (1, 2, 0))
-        
-        # Convert to Pillow Image
-        img_np = (img_np-np.min(img_np))/(np.max(img_np)-np.min(img_np))
-        img_pil = Image.fromarray((img_np*255).astype(np.uint8))
-        
-        # Save the image using Pillow
-        img_pil.save(img_path)
-        print(f"Image saved to {img_path}")
-
-            
-    def scene_save_image(self, img, img_name, subdir):
-        dir_path = os.path.join(self.model_path, subdir)
-        os.makedirs(dir_path, exist_ok=True)
-        img_path = os.path.join(dir_path, f"{img_name}.png")
-        torchvision.utils.save_image(img, img_path)
+            torchvision.utils.save_image(img, img_path)
     def scene_save_fps(self, fps_str):
         with open(os.path.join(self.model_path,"fps.txt"), 'w') as f:
                     f.write(fps_str)
