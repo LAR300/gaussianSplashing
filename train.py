@@ -15,6 +15,7 @@ import torchvision
 import numpy as np
 from random import randint
 from metrics import evaluate
+from render import create_video_set
 from utils.loss_utils import l1_loss, l2_loss, loss_func
 from gaussian_renderer import render, network_gui
 import sys
@@ -163,8 +164,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             # Log and save
             im_test_flag = True # monocular depth while in HYBDEPTH mode, for testing with regular depth
             training_rep_uw = "HYB" if dataset.underwater_processing == "HYBDEPTH" and iteration > 500 else dataset.underwater_processing 
-            save_for_metrics = cfg_dot_dic.GeneralParameters.save_for_metrics
-            if save_for_metrics and iteration == opt.iterations:
+            if cfg_dot_dic.GeneralParameters.save_for_metrics and iteration == opt.iterations:
                 
                 viewpoint_stack = scene.getTrainCameras().copy()
                 for viewpoint_cam in viewpoint_stack:
@@ -224,7 +224,6 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     gaussians.densify_and_prune(opt.densify_grad_threshold, opt.remove_min_opacity_threshold, scene.cameras_extent, size_threshold)
                 
-                ### CareFULL
                 if iteration > opt.densify_from_iter and iteration % (opt.densification_interval+50) == 0:
                     size_threshold = gaussians.max_radii2D.median()+50 if iteration > opt.opacity_reset_interval else None
                     gaussians.densify_and_prune_by_size(opt.remove_min_opacity_threshold, scene.cameras_extent, size_threshold)
@@ -249,11 +248,15 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
     elapsed_training_time = end_training - start_training
     minutes, seconds = divmod(elapsed_training_time, 60)
     
-    
-    
     prepare_output_end(cfg_dot_dic, minutes, seconds, sweep_train_flag)
     if wandb.run is not None:
         wandb.finish(exit_code=0)
+    if cfg_dot_dic.GeneralParameters.save_video:
+        print("Creating video set...")
+        with torch.no_grad():
+            create_video_set(scene, gaussians, pipe, background, dataset.underwater_processing)
+    
+    
     return minutes, seconds
 
 def prepare_output(dataset):           
@@ -354,9 +357,9 @@ def training_report(iteration, Ll1, loss, l1_loss,
                                                 "underwater/backscattering/Bs_histogram": wandb.Histogram(uw_tuple[2]["bs"].detach().cpu())
                                                 }
                                           ,step= iteration)
-                            if idx == 0 and config['name'] == "train" :
-                                save_backscatter_plot(render_pkg["rendered_depth"], render_pkg["rendered_backscattering"], str_name=config['name'] + f"_view/image_{viewpoint.image_name}/bc_plot",
-                                                    wandb=wandb, iteration=iteration)
+                            # if idx == 0 and config['name'] == "train" :
+                            #     save_backscatter_plot(render_pkg["rendered_depth"], render_pkg["rendered_backscattering"], str_name=config['name'] + f"_view/image_{viewpoint.image_name}/bc_plot",
+                            #                         wandb=wandb, iteration=iteration)
         
                             if uw_tuple[0] == "HYBNORMAL":
                                 normal_depth = apply_depth_colormap(-render_pkg["depth"][0][...,None]).permute(2,0,1)

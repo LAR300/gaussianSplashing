@@ -20,6 +20,131 @@ from utils.general_utils import safe_state
 from argparse import ArgumentParser
 from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import GaussianModel
+import copy
+from scipy.spatial.transform import Rotation as R
+import numpy as np
+
+from utils.graphics_utils import getWorld2View2
+from utils.image_utils import apply_depth_colormap
+
+def slerp(q0, q1, t):
+    """Spherical linear interpolation."""
+    dot = torch.dot(q0, q1)
+    if dot < 0.0:
+        q1 = -q1
+        dot = -dot
+    DOT_THRESHOLD = 0.9995
+    if dot > DOT_THRESHOLD:
+        result = q0 + t * (q1 - q0)
+        return result / torch.norm(result)
+    theta_0 = torch.acos(dot)
+    theta = theta_0 * t
+    q2 = q1 - q0 * dot
+    q2 = q2 / torch.norm(q2)
+    return q0 * torch.cos(theta) + q2 * torch.sin(theta)
+
+def matrix_to_quaternion(matrix):
+    """Convert a rotation matrix to a quaternion."""
+    # r = R.from_matrix(matrix.cpu().numpy())
+    # quaternion = r.as_quat() #  x, y, z, w
+    # return torch.tensor([quaternion[3], quaternion[0], quaternion[1], quaternion[2]], device='cuda:0') # w, x, y, z
+    ##############
+    m = matrix
+    qw = torch.sqrt(1 + m[0, 0] + m[1, 1] + m[2, 2]) / 2
+    qx = (m[2, 1] - m[1, 2]) / (4 * qw)
+    qy = (m[0, 2] - m[2, 0]) / (4 * qw)
+    qz = (m[1, 0] - m[0, 1]) / (4 * qw)
+    return torch.tensor([qw, qx, qy, qz], device='cuda:0')
+
+def quaternion_to_matrix(quaternion):
+    """Convert a quaternion to a rotation matrix."""
+    # # w, x, y, z
+    # quaternion = torch.tensor([quaternion[1], quaternion[2], quaternion[3], quaternion[0]], device='cuda:0')
+    # r = R.from_quat(quaternion.cpu().numpy()) # x, y, z, w
+    # rotation_matrix = r.as_matrix()
+    # return torch.tensor(rotation_matrix, device='cuda:0')
+    ##############
+    qw, qx, qy, qz = quaternion
+    qx2, qy2, qz2 = qx * qx, qy * qy, qz * qz
+    qw2 = qw * qw
+    m = torch.tensor([
+        [1 - 2 * (qy2 + qz2), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)],
+        [2 * (qx * qy + qw * qz), 1 - 2 * (qx2 + qz2), 2 * (qy * qz - qw * qx)],
+        [2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx2 + qy2)]
+    ], device='cuda:0')
+    return m
+
+def interpolate_transform(initial_matrix, final_matrix, t):
+    initial_translation, initial_rotation = extract_transform(initial_matrix)
+    final_translation, final_rotation = extract_transform(final_matrix)
+    # initial_rotation = initial_matrix[:3, :3]
+    # final_rotation = final_matrix[:3, :3]
+    # initial_translation = initial_matrix[:3, 3]
+    # final_translation = final_matrix[:3, 3]
+    
+
+    # Convert rotation matrices to quaternions
+    initial_quaternion = matrix_to_quaternion(initial_rotation)
+    final_quaternion = matrix_to_quaternion(final_rotation)
+
+    # Interpolate quaternions
+    interpolated_quaternion = slerp(initial_quaternion, final_quaternion, t)
+
+    # Convert interpolated quaternion back to rotation matrix
+    interpolated_rotation = quaternion_to_matrix(interpolated_quaternion)
+
+    # Interpolate translations
+    interpolated_translation = initial_translation * (1 - t) + final_translation * t
+
+    # Combine into a single transformation matrix
+    
+    interpolated_matrix = getWorld2View2(interpolated_rotation.cpu().numpy(), interpolated_translation.cpu().numpy())
+    interpolated_matrix = interpolated_matrix.transpose()
+    interpolated_matrix = torch.tensor(interpolated_matrix, device='cuda:0')
+    return interpolated_matrix
+
+
+
+def extract_transform(Rt):
+    Rt = Rt.cpu().numpy()
+    Rt = Rt.transpose(1, 0)
+    extracted_t = Rt[:3, 3]
+    extracted_R = Rt[:3, :3].transpose()
+    return torch.tensor(extracted_t, device='cuda:0'), torch.tensor(extracted_R, device='cuda:0')
+def interpolate_cameras(n_frames, initial_viewpoint_orig, final_viewpoint):
+    
+    interpolated_viewpoints = []
+    initial_world_view_transform = initial_viewpoint_orig.world_view_transform
+    final_world_view_transform = final_viewpoint.world_view_transform
+    for i in range(n_frames):
+        t = i / (n_frames - 1)
+        if t == 1:
+            break # Skip the last frame, which is the same as the final viewpoint
+        intepolated_viewpoint = copy.deepcopy(initial_viewpoint_orig)
+        interpolated_matrix = interpolate_transform(initial_world_view_transform, final_world_view_transform, t)
+        intepolated_viewpoint.world_view_transform = interpolated_matrix
+        intepolated_viewpoint.full_proj_transform = (intepolated_viewpoint.world_view_transform.unsqueeze(0).bmm(intepolated_viewpoint.projection_matrix.unsqueeze(0))).squeeze(0)
+        intepolated_viewpoint.image_name = f"{intepolated_viewpoint.image_name}_" +  str(i).zfill(3)
+        interpolated_viewpoints.append(intepolated_viewpoint)
+    return interpolated_viewpoints
+
+def create_video_set(scene, gaussians, pipe, bg, uw_flag, n_frames=8):
+    viewpoint_stack = scene.getTrainCameras().copy()
+    viewpoint_stack = sorted(viewpoint_stack, key=lambda x: x.image_name)
+    for i in range(0, len(viewpoint_stack)-1):
+        
+        viewpoint_cam = viewpoint_stack[i]
+        print(f"Saving for video {viewpoint_cam.image_name}, frames beween = {n_frames}...")
+        interpolated_viewpoints = interpolate_cameras(n_frames, viewpoint_stack[i], viewpoint_stack[i+1])
+        for viewpoint_cam in interpolated_viewpoints:
+            rendering_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=uw_flag)
+            rendering = rendering_pkg["render"]
+            rendering_J = rendering_pkg["rendered_J"]
+            rendering_depth = apply_depth_colormap(rendering_pkg['rendered_depth'].detach().cpu().permute(1, 2, 0)).numpy()
+            
+            scene.scene_save_image(rendering_depth, viewpoint_cam.image_name, os.path.join("train","video_depth"), depth=True)
+            scene.scene_save_image(rendering, viewpoint_cam.image_name, os.path.join("train","video_renders"))
+            scene.scene_save_image(rendering_J, viewpoint_cam.image_name, os.path.join("train","video_rendered_J"))
 
 def render_set(model_path, name, iteration, views, gaussians, pipeline, background):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")

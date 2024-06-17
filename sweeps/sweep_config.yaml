@@ -120,6 +120,8 @@ parameters:
         ]]  
       save_for_metrics:
         value: false
+      save_for_video:
+        value: false
   UnderwaterParameters:
     parameters:
       remove_bs_from_images:

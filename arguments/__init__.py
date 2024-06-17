@@ -190,6 +190,7 @@ def add_general_params(parser):
     group_general_args.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     group_general_args.add_argument("--start_checkpoint", type=str, default = None)
     group_general_args.add_argument('--save_for_metrics', action='store_true', default=False)
+    group_general_args.add_argument('--save_video', action='store_true', default=False)
     return parser
     
 def get_combined_args(parser : ArgumentParser):

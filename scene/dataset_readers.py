@@ -99,7 +99,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         image_name = os.path.basename(image_path).split(".")[0]
         if os.path.basename(extr.name) in os.listdir(images_folder):
             image = load_image(image_path)
-            mask = load_mask(os.path.join(images_folder, "..", "..", "masks", image_name + ".png"))
+            #mask = load_mask(os.path.join(images_folder, "..", "..", "masks", image_name + ".png"))
             cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                                 image_path=image_path, image_name=image_name, width=width, height=height)
             cam_infos.append(cam_info)
@@ -150,7 +150,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
     #all_idx = [1,2,3]
     #eval_idx = [0, 4, 19] # Japanease Gardens
     #eval_idx = [2, 7, 14] # Panama
-    eval_idx = [1, 9, 20] # Curasao
+    #eval_idx = [1, 9, 20] # Curasao
     #eval_idx = [0, 8, 16, 24, 32, 40, 48] # IUITable
     
     # complete
@@ -160,10 +160,10 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
     
     #all_idx = range(len(cam_infos))
     if eval:
-        # train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-        # test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
-        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in eval_idx and idx in all_idx]
-        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in eval_idx and idx in all_idx]
+        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
+        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        # train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in eval_idx and idx in all_idx]
+        # test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in eval_idx and idx in all_idx]
     else:
         train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in all_idx]
         test_cam_infos = []
