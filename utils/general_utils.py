@@ -55,8 +55,12 @@ def save_image(filename, image_orig, depth=False):
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR) # RGB->BGR
     cv2.imwrite(filename, image)
 
-def save_render_depth(img_path,img):
-    cv2.imwrite(img_path, cv2.cvtColor(img,cv2.COLOR_RGB2BGR)*255)
+def save_render_depth(img_path,img, bit16=False):
+    if bit16:
+        #img = cv2.cvtColor(img, cv2.CV_16U)
+        cv2.imwrite(img_path, (img*65535).astype(np.uint16))
+    else:
+        cv2.imwrite(img_path, cv2.cvtColor(img,cv2.COLOR_RGB2BGR)*255)
     
 def save_imagePIL(img_path, image_orig):
     if type(image_orig) == torch.Tensor:

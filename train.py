@@ -55,9 +55,11 @@ def train_sweep(namespace_dict=None, sweep_train_flag=True):
     if cfg_dot_dic.GeneralParameters.ip != "0" and cfg_dot_dic.GeneralParameters.port != -1:
         network_gui.init(cfg_dot_dic.GeneralParameters.ip, cfg_dot_dic.GeneralParameters.port)
     torch.autograd.set_detect_anomaly(cfg_dot_dic.GeneralParameters.detect_anomaly)
-    
+    checkpoint_path = None
+    if type(cfg_dot_dic.GeneralParameters.start_checkpoint)==str and os.path.isfile(cfg_dot_dic.GeneralParameters.start_checkpoint):
+        checkpoint_path = cfg_dot_dic.GeneralParameters.start_checkpoint
     training_miutes, training_seconds = training(cfg_dot_dic ,cfg_dot_dic.LoadingParameters, cfg_dot_dic.OptimizationParameters, cfg_dot_dic.PipelineParameters,  cfg_dot_dic.UnderwaterParameters,
-                                                 sweep_train_flag=sweep_train_flag)
+                                                 checkpoint=checkpoint_path, sweep_train_flag=sweep_train_flag)
     # All done
     print("Training complete.")
     print(f"Training execution time: {int(training_miutes)} minutes {training_seconds:.2f} seconds")

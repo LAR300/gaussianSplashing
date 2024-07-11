@@ -87,12 +87,15 @@ class Scene:
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
         self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
 
-    def scene_save_image(self, img, img_name, subdir, depth=False):
+    def scene_save_image(self, img, img_name, subdir, depth=False, bit16=False):
         dir_path = os.path.join(self.model_path, subdir)
         os.makedirs(dir_path, exist_ok=True)
         img_path = os.path.join(dir_path, f"{img_name}.png")
         if depth:
-            save_render_depth(img_path, img)
+            if bit16:
+                img_path = os.path.join(dir_path, f"{img_name}.tiff")
+            save_render_depth(img_path, img, bit16)
+                
            
         else:
             torchvision.utils.save_image(img, img_path)

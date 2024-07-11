@@ -128,7 +128,7 @@ def interpolate_cameras(n_frames, initial_viewpoint_orig, final_viewpoint):
         interpolated_viewpoints.append(intepolated_viewpoint)
     return interpolated_viewpoints
 
-def create_video_set(scene, gaussians, pipe, bg, uw_flag, n_frames=8):
+def create_video_set(scene, gaussians, pipe, bg, uw_flag, n_frames=10):
     viewpoint_stack = scene.getTrainCameras().copy()
     viewpoint_stack = sorted(viewpoint_stack, key=lambda x: x.image_name)
     for i in range(0, len(viewpoint_stack)-1):
@@ -136,13 +136,19 @@ def create_video_set(scene, gaussians, pipe, bg, uw_flag, n_frames=8):
         viewpoint_cam = viewpoint_stack[i]
         print(f"Saving for video {viewpoint_cam.image_name}, frames beween = {n_frames}...")
         interpolated_viewpoints = interpolate_cameras(n_frames, viewpoint_stack[i], viewpoint_stack[i+1])
+        if i == len(viewpoint_stack)-2:
+            viewpoint_stack[i+1].image_name = f"{viewpoint_stack[i+1].image_name}_" +  str(0).zfill(3)
+            interpolated_viewpoints.append(viewpoint_stack[i+1]) # Add the last viewpoint
         for viewpoint_cam in interpolated_viewpoints:
             rendering_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=uw_flag)
             rendering = rendering_pkg["render"]
             rendering_J = rendering_pkg["rendered_J"]
+            rendering_depth_orig = rendering_pkg['rendered_depth'].detach().cpu().permute(1, 2, 0).numpy()
             rendering_depth = apply_depth_colormap(rendering_pkg['rendered_depth'].detach().cpu().permute(1, 2, 0)).numpy()
             
             scene.scene_save_image(rendering_depth, viewpoint_cam.image_name, os.path.join("train","video_depth"), depth=True)
+            if viewpoint_cam.image_name.split("_")[-1] == "000":
+                scene.scene_save_image(rendering_depth_orig, viewpoint_cam.image_name[:-4], os.path.join("train","video_depth_orig"), depth=True, bit16=True)
             scene.scene_save_image(rendering, viewpoint_cam.image_name, os.path.join("train","video_renders"))
             scene.scene_save_image(rendering_J, viewpoint_cam.image_name, os.path.join("train","video_rendered_J"))
 

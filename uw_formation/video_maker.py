@@ -1,7 +1,7 @@
 import os
 import cv2
 
-def create_video_from_images(image_dir, output_video_path, fps=30):
+def create_video_from_images(image_dir, output_video_path, fps=20):
     # Get list of all image files in the directory
     images = [img for img in os.listdir(image_dir) if img.endswith((".png", ".jpg", ".jpeg"))]
     
@@ -28,15 +28,16 @@ def create_video_from_images(image_dir, output_video_path, fps=30):
     video.release()
     print(f"Video saved as {output_video_path}")
 
+source_dir = 'output/GroupExDebug/GroupExDebug__D3_wbSM_HYB_iter30000_00000'
 # Example usage
-image_directory = 'output/GroupExDebug/GroupExDebug__D3_HYB_iter15000_00000/train/video_renders'
-output_video_file = 'output/GroupExDebug/GroupExDebug__D3_HYB_iter15000_00000/train/video_renders/video_renders.mp4'
+image_directory = f'{source_dir}/train/video_renders'
+output_video_file = f'{source_dir}/train/video_renders/video_renders.mp4'
 create_video_from_images(image_directory, output_video_file, fps=30)
 
 # image_directory = 'output/GroupExDebug/GroupExDebug__D3_HYB_iter15000_00000/video_rendered_J'
 # output_video_file = 'output/GroupExDebug/GroupExDebug__D3_HYB_iter15000_00000/video_renders/video_rendered_J.mp4'
 # create_video_from_images(image_directory, output_video_file, fps=30)
 
-image_directory = 'output/GroupExDebug/GroupExDebug__D3_HYB_iter15000_00000/train/video_depth'
-output_video_file = 'output/GroupExDebug/GroupExDebug__D3_HYB_iter15000_00000/train/video_depth/video_depth.mp4'
+image_directory = f'{source_dir}/train/video_depth'
+output_video_file = f'{source_dir}/train/video_depth/video_depth.mp4'
 create_video_from_images(image_directory, output_video_file, fps=30)
