@@ -81,23 +81,6 @@ def gray_world(input_dir, output_dir):
         # Apply histogram equalization to improve contrast
         img_array_eq = exposure.equalize_hist(img_array)
 
-        # # Calculate average R, G, and B values after histogram equalization
-        # avg_r = np.mean(img_array_eq[:,:,0])
-        # avg_g = np.mean(img_array_eq[:,:,1])
-        # avg_b = np.mean(img_array_eq[:,:,2])
-
-        # # Handle division by zero
-        # if avg_r == 0 or avg_g == 0 or avg_b == 0:
-        #     print(f"Warning: Division by zero for image {image_file}")
-        #     continue
-
-        # # Calculate gray world factor
-        # gray_world_factor = (avg_r + avg_g + avg_b) / 3
-
-        # # Scale R, G, and B channels
-        # scaled_r = img_array_eq[:,:,0] * (gray_world_factor / avg_r)
-        # scaled_g = img_array_eq[:,:,1] * (gray_world_factor / avg_g)
-        # scaled_b = img_array_eq[:,:,2] * (gray_world_factor / avg_b)
         scaled_r = img_array_eq[:,:,0]
         scaled_g = img_array_eq[:,:,1]
         scaled_b = img_array_eq[:,:,2]
@@ -177,7 +160,28 @@ def wb_precentile(imagesPath, outImagesPath, precentile=99.8):
         img = Image.fromarray(currImage)
         img.save(os.path.join(outImagesPath, f"{imageList[imageIdx]}"))
         
-        
+def process_images(input_folder, output_folder):
+    # Ensure output folder exists
+    os.makedirs(output_folder, exist_ok=True)
+
+    for filename in os.listdir(input_folder):
+        if filename.endswith('.png'):
+            # Open the image file
+            img_path = os.path.join(input_folder, filename)
+            with Image.open(img_path) as img:
+                # Resize the image
+                resized_img = img.resize((1365, 904))
+
+                # Convert to binary (1-bit pixels, black and white)
+                binary_img = resized_img.convert('1')
+
+                # Invert black and white
+                #inverted_img = Image.eval(binary_img, lambda x: 255 - x)
+
+                # Save the processed image to the output folder
+                output_path = os.path.join(output_folder, filename)
+                binary_img.save(output_path)
+
 if __name__ == "__main__":
     # whiteblancing_dir = os.path.dirname(__file__)
     # input_image_name = "MTN_1288"
@@ -198,5 +202,4 @@ if __name__ == "__main__":
     
     # imagesPath = os.path.join("data", "SeathruNeRF_dataset", "JapaneseGardens-RedSea-notWB" , "images")
     # outImagesPath = os.path.join("data", "SeathruNeRF_dataset", "JapaneseGardens-RedSea-notWB" , "images_wb")
-    gray_world(imagesPath, outImagesPath)
-    #wb_precentile(outImagesPath, outImagesPath, 99.8)
+    process_images(r"/mnt/nfs_qnap_nips/D3/masks", r"/mnt/nfs_qnap_nips/D3/uncorrectedTiff_wbSM/masks")

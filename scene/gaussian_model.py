@@ -11,7 +11,7 @@
 
 import torch
 import numpy as np
-from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
+from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation, process_mean3d_using_camera_mask
 from torch import nn
 import os
 from utils.system_utils import mkdir_p
@@ -674,131 +674,6 @@ class GaussianModel:
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
     
-    # def densification_postfix_uwhybV2(self, new_xyz,                #########################V2
-    #                           new_features_dc, new_features_rest,
-    #                           new_opacities, new_scaling, new_rotation,
-    #                           new_direct=None,
-    #                           new_normal=None, new_normal2=None):
-    #     d = {"xyz": new_xyz,
-    #     "f_dc": new_features_dc,
-    #     "f_rest": new_features_rest,
-    #     # start addition uw
-    #     "direct": new_direct,
-    #     #"binf": new_binf,
-    #     #"bs": new_bs,
-    #     "normal" : new_normal,
-    #     "normal2" : new_normal2,
-    #     # end addition uw
-    #     "opacity": new_opacities,
-    #     "scaling" : new_scaling,
-    #     "rotation" : new_rotation} if self.uw_flag == "HYBNORMAL" else {"xyz": new_xyz,
-    #     "f_dc": new_features_dc,
-    #     "f_rest": new_features_rest,
-    #     # start addition uw
-    #     "direct": new_direct,
-    #     #"binf": new_binf,
-    #     #"bs": new_bs,
-    #     # end addition uw
-    #     "opacity": new_opacities,
-    #     "scaling" : new_scaling,
-    #     "rotation" : new_rotation}
-
-    #     optimizable_tensors = self.cat_tensors_to_optimizer(d)
-    #     self._xyz = optimizable_tensors["xyz"]
-    #     self._features_dc = optimizable_tensors["f_dc"]
-    #     self._features_rest = optimizable_tensors["f_rest"]
-    #     # start addition uw
-    #     self._direct = optimizable_tensors["direct"]
-    #     #self._binf = optimizable_tensors["binf"]
-    #     #self._bs = optimizable_tensors["bs"]
-    #     if self.uw_flag == "HYBNORMAL":
-    #         self._normal = optimizable_tensors["normal"]
-    #         self._normal2 = optimizable_tensors["normal2"]
-    #     # end addition uw
-    #     self._opacity = optimizable_tensors["opacity"]
-    #     self._scaling = optimizable_tensors["scaling"]
-    #     self._rotation = optimizable_tensors["rotation"]
-
-    #     self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-    #     self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-    #     self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
-    # end addition uw
-    
-    # def densify_and_split(self, grads, grad_threshold, scene_extent, N=2): #################V2
-    #     n_init_points = self.get_xyz.shape[0]
-    #     # Extract points that satisfy the gradient condition
-    #     padded_grad = torch.zeros((n_init_points), device="cuda")
-    #     padded_grad[:grads.shape[0]] = grads.squeeze()
-    #     selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
-    #     selected_pts_mask = torch.logical_and(selected_pts_mask,
-    #                                           torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
-
-    #     stds = self.get_scaling[selected_pts_mask].repeat(N,1)
-    #     means =torch.zeros((stds.size(0), 3),device="cuda")
-    #     samples = torch.normal(mean=means, std=stds)
-    #     rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
-    #     new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
-    #     new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
-    #     new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
-    #     new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
-    #     new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
-
-    #     new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
-
-    #     new_direct = self._direct[selected_pts_mask].repeat(N,1)
-
-        
-    #     if self.uw_flag.startswith("HYB"):
-    #         new_normal = self._normal[selected_pts_mask].repeat(N,1) if self.uw_flag == "HYBNORMAL" else None
-    #         new_normal2 = self._normal2[selected_pts_mask].repeat(N,1) if self.uw_flag == "HYBNORMAL" else None
-    #         self.densification_postfix_uwhybV2(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_direct, new_normal, new_normal2) # with uw addition
-    #     else:
-    #         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation) # without uw addition
-    #     prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
-    #     self.prune_points(prune_filter)
-
-    # def densify_and_clone(self, grads, grad_threshold, scene_extent):       #################V2
-    #     # Extract points that satisfy the gradient condition
-    #     selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
-    #     selected_pts_mask = torch.logical_and(selected_pts_mask,
-    #                                           torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
-        
-    #     new_xyz = self._xyz[selected_pts_mask]
-    #     new_features_dc = self._features_dc[selected_pts_mask]
-    #     new_features_rest = self._features_rest[selected_pts_mask]
-    #     new_opacities = self._opacity[selected_pts_mask]
-    #     new_scaling = self._scaling[selected_pts_mask]
-    #     new_rotation = self._rotation[selected_pts_mask]
-
-    #     new_direct = self._direct[selected_pts_mask]
-
-    #     if self.uw_flag.startswith("HYB"):
-    #         new_normal = self._normal[selected_pts_mask] if self.uw_flag == "HYBNORMAL" else None
-    #         new_normal2 = self._normal2[selected_pts_mask] if self.uw_flag == "HYBNORMAL" else None
-    #         self.densification_postfix_uwhybV2(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_direct, new_normal, new_normal2) # with uw addition
-    #     else:
-    #         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation) # without uw addition
-        
-
-    # def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):            #################V2
-    #     grads = self.xyz_gradient_accum / self.denom
-    #     grads[grads.isnan()] = 0.0
-
-    #     self.densify_and_clone(grads, max_grad, extent)
-    #     self.densify_and_split(grads, max_grad, extent)
-
-    #     prune_mask = (self.get_opacity < min_opacity).squeeze()
-
-    #     # prune_mask_direct = (self.get_direct < 0.00001).squeeze() #########################V2
-    #     # prune_mask = torch.logical_or(prune_mask, prune_mask_direct) #########################V2
-    #     if max_screen_size:
-    #         big_points_vs = self.max_radii2D > max_screen_size
-    #         big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
-    #         prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
-    #     self.prune_points(prune_mask)
-
-    #     torch.cuda.empty_cache()
-    
 
 
     def densify_and_split(self, grads, grad_threshold, scene_extent, N=2): #################V1
@@ -886,3 +761,7 @@ class GaussianModel:
     
     def set_requires_grad(self, attrib_name, state: bool):
         getattr(self, f"_{attrib_name}").requires_grad = state
+    
+    def prune_by_maskingBG(self, viewpoint_stack):
+        prune_mask = process_mean3d_using_camera_mask(self.get_xyz, viewpoint_stack)
+        self.prune_points(prune_mask)

@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import copy
 import torch
 import sys
 from datetime import datetime
@@ -222,3 +223,98 @@ def flip_align_view(normal, viewdir):
     non_flip = dotprod>=0 # (N, 1)
     normal_flipped = normal*torch.where(non_flip, 1, -1) # (N, 3)
     return normal_flipped, non_flip
+
+def transform_points_4x4(points, matrix):
+    """
+    Transform a set of 3D points using a 4x4 transformation matrix.
+
+    Parameters:
+    points (np.ndarray): The 3D points as a numpy array with shape (m, 3).
+    matrix (np.ndarray): The 4x4 transformation matrix as a numpy array.
+
+    Returns:
+    np.ndarray: The transformed 4D points as a numpy array with shape (m, 4).
+    """
+    num_points = points.shape[0]
+    # Append a column of ones to the points to make them 4D
+    points_hom = np.hstack((points, np.ones((num_points, 1))))
+    # Perform the matrix multiplication
+    transformed = points_hom @ matrix.T
+    return transformed
+
+def ndc2pix(v, S):
+    """
+    Convert a normalized device coordinate (NDC) value to pixel coordinates.
+
+    Parameters:
+    v (np.ndarray): The NDC values.
+    S (int): The size of the screen (e.g., screen width or height in pixels).
+
+    Returns:
+    np.ndarray: The corresponding pixel coordinates.
+    """
+    return ((v + 1.0) * S - 1.0) * 0.5
+
+def filter_array_by_mask(mean2d, mask, mean2d_mask):
+    """
+    Update mean2d_mask to 0 for rows in array `mean2d` where the corresponding values in the `mask` are 0.
+    Leave rows unchanged if they refer to coordinates outside the bounds of the mask.
+
+    Parameters:
+    mean2d (np.ndarray): Input array of shape (m, 2).
+    mask (np.ndarray): Mask array of shape (h, w).
+    mean2d_mask (np.ndarray): Array of shape (m,) that will be updated.
+
+    Returns:
+    None
+    """
+    # Ensure the values in `mean2d` are within the bounds of `mask`
+    indices_x = np.clip(mean2d[:, 0], 0, mask.shape[1] - 1).astype(int)
+    indices_y = np.clip(mean2d[:, 1], 0, mask.shape[0] - 1).astype(int)
+
+    # Create a boolean mask where the conditions are met
+    valid = (0 <= mean2d[:, 0]) & (mean2d[:, 0] < mask.shape[1]) & (0 <= mean2d[:, 1]) & (mean2d[:, 1] < mask.shape[0])
+
+    # Update mean2d_mask where mask values are 0
+    mean2d_mask[valid & (mask[indices_y, indices_x] == 0)] = 1
+
+def process_mean3d_using_camera_mask(mean3d, viewpoint_stack):
+    """
+    Process all points to transform them using the projection matrix and convert them to image coordinates.
+
+    Parameters:
+    all_points (np.ndarray): Array containing all points with shape (m, 3).
+    projmatrix (np.ndarray): The 4x4 projection matrix.
+    W (int): The width of the image.
+    H (int): The height of the image.
+
+    Returns:
+    np.ndarray: The 2D points in image coordinates with shape (m, 2).
+    """
+    mean3d = mean3d.cpu().numpy()
+    mean2d_mask = np.zeros((mean3d.shape[0], 1))
+    for viewpoint_cam in viewpoint_stack:
+        H = int(viewpoint_cam.image_height)
+        W = int(viewpoint_cam.image_width)
+        # Transform all points using the projection matrix
+        transformed_points = transform_points_4x4(mean3d, viewpoint_cam.full_proj_transform.cpu().numpy())
+        
+        # Calculate the reciprocal of the homogeneous coordinate
+        p_w = 1.0 / (transformed_points[:, 3] + 1e-7)
+        
+        # Project the points
+        p_proj = transformed_points[:, :3] * p_w[:, np.newaxis]
+        
+        # Convert to image coordinates
+        points_image_x = ndc2pix(p_proj[:, 0], W)
+        points_image_y = ndc2pix(p_proj[:, 1], H)
+        
+        # Stack the coordinates to get the final output
+        mean2d_cam = np.stack((points_image_x.astype(int), points_image_y.astype(int)), axis=-1)
+        if viewpoint_cam.mask is not None:
+            filter_array_by_mask(mean2d_cam, viewpoint_cam.mask.cpu().numpy().squeeze(0), mean2d_mask)
+    
+    mean2d_mask = (mean2d_mask >= 0.5).astype(bool).squeeze(1)
+    mean2d_mask = torch.tensor(mean2d_mask, dtype=torch.bool, device="cuda")
+    return mean2d_mask
+    

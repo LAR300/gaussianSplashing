@@ -127,7 +127,6 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             pipe.debug = True
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background # [0,0,0] most of the times
-        depth_map = None
         if dataset.underwater_processing.startswith("HYB"):
             if dataset.underwater_processing == "HYBNORMAL":
                 gaussians.set_requires_grad("normal", state=iteration >= 0)
@@ -232,7 +231,10 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
-
+                
+            if opt.masking_interval!= -1 and (iteration % opt.masking_interval or iteration in cfg_dot_dic.GeneralParameters.test_iterations) == 0:
+                gaussians.prune_by_maskingBG(viewpoint_stack)
+                
             # Optimizer step
             if iteration <= opt.iterations:
                 gaussians.optimizer.step()
@@ -350,7 +352,8 @@ def training_report(iteration, Ll1, loss, l1_loss,
                                 wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_depth": wandb.Image(apply_depth_colormap(render_pkg['rendered_depth'].detach().cpu().permute(1, 2, 0)).numpy(), caption=f'depth_map')}, step=iteration)
                             except:
                                 pass
-                            #wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_depth": wandb.Image(wb_torch2np(depth_map[None]), caption=f'depth_map')}, step=iteration)
+                            if iteration==1 and viewpoint.mask is not None :
+                                wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/mask": wandb.Image(wb_torch2np(viewpoint.mask), caption=f'mask')}, step=iteration)
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_J": wandb.Image(wb_torch2np(rendered_J[None]), caption=f'rendered_J')}, step=iteration)
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_backscattering": wandb.Image(wb_torch2np(rendered_backscattering[None]), caption=f'rendered_backscattering')}, step=iteration)
 

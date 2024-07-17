@@ -35,6 +35,7 @@ class CameraInfo(NamedTuple):
     image_name: str
     width: int
     height: int
+    mask: np.array
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -99,9 +100,12 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         image_name = os.path.basename(image_path).split(".")[0]
         if os.path.basename(extr.name) in os.listdir(images_folder):
             image = load_image(image_path)
-            #mask = load_mask(os.path.join(images_folder, "..", "..", "masks", image_name + ".png"))
+            mask=None
+            mask_dir_path = os.path.join(images_folder, "..", "masks")
+            if os.path.isdir(mask_dir_path) and os.path.isfile(os.path.join(mask_dir_path, image_name + ".png")):
+                mask = load_mask(os.path.join(mask_dir_path, image_name + ".png"))
             cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                                image_path=image_path, image_name=image_name, width=width, height=height)
+                                image_path=image_path, image_name=image_name, width=width, height=height, mask=mask)
             cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -160,10 +164,10 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
     
     #all_idx = range(len(cam_infos))
     if eval:
-        # train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-        # test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
-        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in eval_idx and idx in all_idx]
-        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in eval_idx and idx in all_idx]
+        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
+        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        # train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in eval_idx and idx in all_idx]
+        # test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in eval_idx and idx in all_idx]
     else:
         train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in all_idx]
         test_cam_infos = []

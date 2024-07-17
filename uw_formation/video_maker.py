@@ -27,17 +27,18 @@ def create_video_from_images(image_dir, output_video_path, fps=20):
     # Release the video writer
     video.release()
     print(f"Video saved as {output_video_path}")
+    
+if __name__ == "__main__":
+    source_dir = 'output/GroupExDebug/GroupExDebug__D3_wbSM_HYB_iter30000_00000'
+    # Example usage
+    image_directory = f'{source_dir}/train/video_renders'
+    output_video_file = f'{source_dir}/train/video_renders/video_renders.mp4'
+    create_video_from_images(image_directory, output_video_file, fps=30)
 
-source_dir = 'output/GroupExDebug/GroupExDebug__D3_wbSM_HYB_iter30000_00000'
-# Example usage
-image_directory = f'{source_dir}/train/video_renders'
-output_video_file = f'{source_dir}/train/video_renders/video_renders.mp4'
-create_video_from_images(image_directory, output_video_file, fps=30)
+    # image_directory = 'output/GroupExDebug/GroupExDebug__D3_HYB_iter15000_00000/video_rendered_J'
+    # output_video_file = 'output/GroupExDebug/GroupExDebug__D3_HYB_iter15000_00000/video_renders/video_rendered_J.mp4'
+    # create_video_from_images(image_directory, output_video_file, fps=30)
 
-# image_directory = 'output/GroupExDebug/GroupExDebug__D3_HYB_iter15000_00000/video_rendered_J'
-# output_video_file = 'output/GroupExDebug/GroupExDebug__D3_HYB_iter15000_00000/video_renders/video_rendered_J.mp4'
-# create_video_from_images(image_directory, output_video_file, fps=30)
-
-image_directory = f'{source_dir}/train/video_depth'
-output_video_file = f'{source_dir}/train/video_depth/video_depth.mp4'
-create_video_from_images(image_directory, output_video_file, fps=30)
+    image_directory = f'{source_dir}/train/video_depth'
+    output_video_file = f'{source_dir}/train/video_depth/video_depth.mp4'
+    create_video_from_images(image_directory, output_video_file, fps=30)
