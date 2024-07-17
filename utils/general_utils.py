@@ -277,6 +277,7 @@ def filter_array_by_mask(mean2d, mask, mean2d_mask):
 
     # Update mean2d_mask where mask values are 0
     mean2d_mask[valid & (mask[indices_y, indices_x] == 0)] = 1
+    #mean2d_mask[valid] = 1
 
 def process_mean3d_using_camera_mask(mean3d, viewpoint_stack):
     """
@@ -291,6 +292,13 @@ def process_mean3d_using_camera_mask(mean3d, viewpoint_stack):
     Returns:
     np.ndarray: The 2D points in image coordinates with shape (m, 2).
     """
+    # `mean3d` is a 3D array containing points in a 3D space. The function
+    # `process_mean3d_using_camera_mask` processes these points by transforming them using a
+    # projection matrix and converting them to image coordinates. The points are transformed using the
+    # projection matrix obtained from a camera viewpoint. The function calculates the reciprocal of
+    # the homogeneous coordinate, projects the points, and then converts them to image coordinates by
+    # applying a normalization operation. Finally, the function filters out points that fall outside
+    # the bounds of a mask associated with the camera viewpoint.
     mean3d = mean3d.cpu().numpy()
     mean2d_mask = np.zeros((mean3d.shape[0], 1))
     for viewpoint_cam in viewpoint_stack:

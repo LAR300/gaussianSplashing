@@ -205,6 +205,8 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 fps = sum(execution_time_lst) / len(execution_time_lst) 
                 print("Execution (render eval) time:", fps, "seconds")
                 scene.scene_save_fps("Frame Per Second (render eval): " + str(fps))
+
+
                 
             training_report(iteration, Ll1, loss, l1_loss,
                             Ll2, l2_loss, Psnr,
@@ -232,8 +234,10 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
                 
-            if opt.masking_interval!= -1 and (iteration % opt.masking_interval or iteration in cfg_dot_dic.GeneralParameters.test_iterations) == 0:
+            if opt.masking_interval!= -1 and (iteration % opt.masking_interval) == 0:
                 gaussians.prune_by_maskingBG(viewpoint_stack)
+                
+            
                 
             # Optimizer step
             if iteration <= opt.iterations:
