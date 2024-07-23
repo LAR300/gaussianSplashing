@@ -107,6 +107,8 @@ class ModelParams(ParamGroup):
         self.underwater_processing = "OFF" # "OFF", "HYB", "HYBDEPTH"
         self._white_background = False
         self.data_device = "cuda"
+        self.densification = "OFF" # "OFF", "MCMC"
+        self.cap_max = 800000
         self.eval = True # if True, use train and testset, else, only one set
         super().__init__(parser, "Loading Parameters", sentinel)
 
@@ -159,12 +161,15 @@ class OptimizationParams(ParamGroup):
         
         self.densification_interval = 100 
         self.opacity_reset_interval = 3000 
-        self.masking_interval = 3000 # -1 for no masking
+        self.masking_interval = -1 # -1 for no masking
         self.densify_from_iter = 1500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
         self.remove_min_opacity_threshold  = 0.1
         self.random_background = False
+        self.noise_lr = 5e5
+        self.scale_reg = 0.01
+        self.opacity_reg = 0.01
         super().__init__(parser, "Optimization Parameters")
 
 class WandbParams(ParamGroup):

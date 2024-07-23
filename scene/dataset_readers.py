@@ -152,22 +152,21 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
     # part
     #all_idx = [1,2,3]
-    #eval_idx = [0, 4, 19] # Japanease Gardens
+    eval_idx = [0, 4, 19] # Japanease Gardens
     #eval_idx = [2, 7, 14] # Panama
     #eval_idx = [1, 9, 20] # Curasao
     #eval_idx = [0, 8, 16, 24, 32, 40, 48] # IUITable
     
     # complete
     all_idx = range(len(cam_infos))
-    eval_idx = [-1]
+    #eval_idx = [-1]
     
     
-    #all_idx = range(len(cam_infos))
     if eval:
-        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
-        # train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in eval_idx and idx in all_idx]
-        # test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in eval_idx and idx in all_idx]
+        # train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
+        # test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
+        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in eval_idx and idx in all_idx]
+        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in eval_idx and idx in all_idx]
     else:
         train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in all_idx]
         test_cam_infos = []

@@ -30,6 +30,7 @@ from arguments import ModelParams, PipelineParams, OptimizationParams, WandbPara
 import wandb
 from uw_formation.depthmap import depth_estimation
 from uw_formation.plotBs import save_backscatter_plot
+from scene.gaussian_model import build_scaling_rotation
 
 
 
@@ -111,7 +112,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         # end UW processing
         iter_start.record()
 
-        gaussians.update_learning_rate(iteration)
+        xyz_lr = gaussians.update_learning_rate(iteration)
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
@@ -148,7 +149,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         # Underwater backscatter removal
         gt_image = viewpoint_cam.original_image.cuda()
         # Loss
-        loss, Ll1, Ll2, Psnr = loss_func(iteration, image, gt_image, opt, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict)
+        loss, Ll1, Ll2, Psnr = loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict)
         loss.backward()
 
         iter_end.record()
@@ -207,7 +208,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 scene.scene_save_fps("Frame Per Second (render eval): " + str(fps))
 
 
-                
+            
             training_report(iteration, Ll1, loss, l1_loss,
                             Ll2, l2_loss, Psnr,
                             iter_start.elapsed_time(iter_end), cfg_dot_dic.GeneralParameters.test_iterations, scene, render, [pipe, bg, training_rep_uw, im_test_flag],
@@ -216,23 +217,29 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 print("\n[ITER {}] Saving was denied by user".format(iteration))
                 #scene.save(iteration)
-
+        
             # Densification
-            if iteration < opt.densify_until_iter:
-                # Keep track of max radii in image-space for pruning
-                gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
-                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
+            if dataset.densification == "OFF":
+                if iteration < opt.densify_until_iter:
+                    # Keep track of max radii in image-space for pruning
+                    gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
+                    gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
-                if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                    size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    gaussians.densify_and_prune(opt.densify_grad_threshold, opt.remove_min_opacity_threshold, scene.cameras_extent, size_threshold)
-                
-                if iteration > opt.densify_from_iter and iteration % (opt.densification_interval+50) == 0:
-                    size_threshold = gaussians.max_radii2D.median()+50 if iteration > opt.opacity_reset_interval else None
-                    gaussians.densify_and_prune_by_size(opt.remove_min_opacity_threshold, scene.cameras_extent, size_threshold)
-                
-                if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
-                    gaussians.reset_opacity()
+                    if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+                        size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                        gaussians.densify_and_prune(opt.densify_grad_threshold, opt.remove_min_opacity_threshold, scene.cameras_extent, size_threshold)
+                    
+                    # if iteration > opt.densify_from_iter and iteration % (opt.densification_interval+50) == 0:
+                    #     size_threshold = gaussians.max_radii2D.median()+50 if iteration > opt.opacity_reset_interval else None
+                    #     gaussians.densify_and_prune_by_size(opt.remove_min_opacity_threshold, scene.cameras_extent, size_threshold)
+                    
+                    if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
+                        gaussians.reset_opacity()
+            elif dataset.densification == "MCMC":
+                if iteration < opt.densify_until_iter and iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+                    dead_mask = (gaussians.get_opacity <= 0.005).squeeze(-1)
+                    gaussians.relocate_gs(dead_mask=dead_mask)
+                    gaussians.add_new_gs(cap_max=args.cap_max)
                 
             if opt.masking_interval!= -1 and (iteration % opt.masking_interval) == 0:
                 gaussians.prune_by_maskingBG(viewpoint_stack)
@@ -243,6 +250,17 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             if iteration <= opt.iterations:
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
+                if dataset.densification == "MCMC":
+                    L = build_scaling_rotation(gaussians.get_scaling, gaussians.get_rotation)
+                    actual_covariance = L @ L.transpose(1, 2)
+
+                    def op_sigmoid(x, k=100, x0=0.995):
+                        return 1 / (1 + torch.exp(-k * (x - x0)))
+                    
+                    noise = torch.randn_like(gaussians._xyz) * (op_sigmoid(1- gaussians.get_opacity))*args.noise_lr*xyz_lr
+                    noise = torch.bmm(actual_covariance, noise.unsqueeze(-1)).squeeze(-1)
+                    gaussians._xyz.add_(noise)
+                    
                 if dataset.underwater_processing.startswith("HYB"):
                     gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_dl, uw.exp_range_dh), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_bl, uw.exp_range_bh))
 
