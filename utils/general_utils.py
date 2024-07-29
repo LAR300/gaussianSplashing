@@ -239,7 +239,7 @@ def transform_points_4x4(points, matrix):
     # Append a column of ones to the points to make them 4D
     points_hom = np.hstack((points, np.ones((num_points, 1))))
     # Perform the matrix multiplication
-    transformed = points_hom @ matrix.T
+    transformed = points_hom @ matrix#.T , it is already transposed in cameras.py
     return transformed
 
 def ndc2pix(v, S):
@@ -272,7 +272,7 @@ def filter_array_by_mask(mean2d, mask, mean2d_mask):
     indices_x = np.clip(mean2d[:, 0], 0, mask.shape[1] - 1).astype(int)
     indices_y = np.clip(mean2d[:, 1], 0, mask.shape[0] - 1).astype(int)
 
-    # Create a boolean mask where the conditions are met
+    # Create a boolean mask where the points are in the image bounds
     valid = (0 <= mean2d[:, 0]) & (mean2d[:, 0] < mask.shape[1]) & (0 <= mean2d[:, 1]) & (mean2d[:, 1] < mask.shape[0])
 
     # Update mean2d_mask where mask values are 0
@@ -302,6 +302,8 @@ def process_mean3d_using_camera_mask(mean3d, viewpoint_stack):
     mean3d = mean3d.cpu().numpy()
     mean2d_mask = np.zeros((mean3d.shape[0], 1))
     for viewpoint_cam in viewpoint_stack:
+        # if viewpoint_cam.image_name != "T_S04863":
+        #     continue
         H = int(viewpoint_cam.image_height)
         W = int(viewpoint_cam.image_width)
         # Transform all points using the projection matrix
@@ -319,10 +321,34 @@ def process_mean3d_using_camera_mask(mean3d, viewpoint_stack):
         
         # Stack the coordinates to get the final output
         mean2d_cam = np.stack((points_image_x.astype(int), points_image_y.astype(int)), axis=-1)
+        
         if viewpoint_cam.mask is not None:
             filter_array_by_mask(mean2d_cam, viewpoint_cam.mask.cpu().numpy().squeeze(0), mean2d_mask)
+        #display_on_image(mean2d_cam[(mean2d_mask >= 0.5).astype(bool).squeeze(1)], W, H, viewpoint_cam.image_name)
     
     mean2d_mask = (mean2d_mask >= 0.5).astype(bool).squeeze(1)
     mean2d_mask = torch.tensor(mean2d_mask, dtype=torch.bool, device="cuda")
     return mean2d_mask
+
+def display_on_image(mean2d_cam, W, H, image_name):
+    """
+    Display the 2D points on an image.
+
+    Parameters:
+    mean2d_cam (np.ndarray): The 2D points in image coordinates with shape (m, 2).
+    W (int): The width of the image.
+    H (int): The height of the image.
+
+    Returns:
+    None
+    """
+    # Create an empty image
+    image = np.zeros((H, W, 3), dtype=np.uint8)
+    # Draw a circle at each point
+    for point in mean2d_cam:
+        cv2.circle(image, tuple(point), 2, (0, 255, 0), -1)
+    # Display the image
+    cv2.imwrite('utils/projected_'+image_name + '.png', image)
+
+    print(f"Image saved as {image_name}")
     

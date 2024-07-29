@@ -242,7 +242,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     gaussians.add_new_gs(cap_max=args.cap_max)
                 
             if opt.masking_interval!= -1 and (iteration % opt.masking_interval) == 0:
-                gaussians.prune_by_maskingBG(viewpoint_stack)
+                gaussians.prune_by_maskingBG(scene.getTrainCameras())
                 
             
                 
