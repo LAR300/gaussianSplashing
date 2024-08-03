@@ -160,7 +160,7 @@ def wb_precentile(imagesPath, outImagesPath, precentile=99.8):
         img = Image.fromarray(currImage)
         img.save(os.path.join(outImagesPath, f"{imageList[imageIdx]}"))
         
-def process_images(input_folder, output_folder):
+def process_images(input_folder, output_folder, binary=False):
     # Ensure output folder exists
     os.makedirs(output_folder, exist_ok=True)
 
@@ -173,14 +173,15 @@ def process_images(input_folder, output_folder):
                 resized_img = img.resize((1365, 904))
 
                 # Convert to binary (1-bit pixels, black and white)
-                binary_img = resized_img.convert('1')
+                if binary:
+                    resized_img = resized_img.convert('1')
 
                 # Invert black and white
                 #inverted_img = Image.eval(binary_img, lambda x: 255 - x)
 
                 # Save the processed image to the output folder
                 output_path = os.path.join(output_folder, filename)
-                binary_img.save(output_path)
+                resized_img.save(output_path)
 
 if __name__ == "__main__":
     # whiteblancing_dir = os.path.dirname(__file__)
@@ -197,9 +198,9 @@ if __name__ == "__main__":
 
     #balanced_image = white_balance_gray_avg(balanced_image)
     
-    imagesPath = os.path.join("data", "IUITable", "images")
-    outImagesPath = os.path.join("data", "IUITable", "images_wb")
+    imagesPath = os.path.join("data", "D3", "imagesRaw")
+    outImagesPath = os.path.join("data", "D3", "images")
     
     # imagesPath = os.path.join("data", "SeathruNeRF_dataset", "JapaneseGardens-RedSea-notWB" , "images")
     # outImagesPath = os.path.join("data", "SeathruNeRF_dataset", "JapaneseGardens-RedSea-notWB" , "images_wb")
-    process_images(r"/mnt/nfs_qnap_nips/D3/masks", r"/mnt/nfs_qnap_nips/D3/uncorrectedTiff_wbSM/masks")
+    process_images(imagesPath, outImagesPath)

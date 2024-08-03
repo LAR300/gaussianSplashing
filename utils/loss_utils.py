@@ -40,7 +40,7 @@ def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_p
                 delta_reg_loss_val = delta_normal_loss(render_pkg["delta_normal_norm"], alpha=None)# render_pkg["alpha"])
             zero_one_loss_val = zero_one_loss(render_pkg["alpha"])
             loss += opt.lambda_predicted_normal * predicted_normal_loss_val + opt.lambda_delta_reg * delta_reg_loss_val + opt.lambda_zero_one * zero_one_loss_val
-            # loss = loss + opt.opacity_reg * torch.abs(gaussians.get_opacity).mean()
+            loss = loss + opt.opacity_reg * torch.abs(gaussians.get_opacity).mean()
             # loss = loss + opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
             
         

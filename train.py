@@ -228,13 +228,10 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                         size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                         gaussians.densify_and_prune(opt.densify_grad_threshold, opt.remove_min_opacity_threshold, scene.cameras_extent, size_threshold)
-                    
-                    # if iteration > opt.densify_from_iter and iteration % (opt.densification_interval+50) == 0:
-                    #     size_threshold = gaussians.max_radii2D.median()+50 if iteration > opt.opacity_reset_interval else None
-                    #     gaussians.densify_and_prune_by_size(opt.remove_min_opacity_threshold, scene.cameras_extent, size_threshold)
-                    
+
                     if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                         gaussians.reset_opacity()
+                        
             elif dataset.densification == "MCMC":
                 if iteration < opt.densify_until_iter and iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     dead_mask = (gaussians.get_opacity <= 0.005).squeeze(-1)
