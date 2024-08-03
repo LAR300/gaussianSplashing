@@ -47,7 +47,7 @@ def estimateBackscatter(Ism, zsm, pdark=0.01, intervals_num=25, resized_highet=3
     #minvals = minvals[~exclude, :]
     #thisz = np.concatenate([[0], thisz])
     #minvals = np.vstack([[0, 0, 0], minvals])
-    scale = 0.25
+    scale = 1
     # x0 = [np.random.rand()*scale, np.random.rand()*scale]
     # lb = [0, 0]
     # ub = [scale, scale]
@@ -346,53 +346,31 @@ def main_run():
     clean_dir = os.path.join('uw_formation', 'clean_bs')
     depth_gs_dir = os.path.join('uw_formation', 'depth_gs')
     depth_text_dir = os.path.join('uw_formation', 'depth_text')
-    input_image_name = "MTN_1307"
+    input_image_name = "T_S04856"
     ext = ".png"
-    # input_image_name = "DSC01784"
     # ext = ".jpg"
-    input_depth = None
     input_image = os.path.join(whiteblancing_dir,f"{input_image_name}{ext}")
-    #input_depth = os.path.join(depth_dir,f"{input_image_name}_depth.png")
-    #input_depth = os.path.join(depth_gs_dir,f"train_{input_image_name}_30000.png")
     output_image_name_depth = f"{input_image_name}_depth.png"
     output_image_name_cleanbs = f"{input_image_name}_nonbs.png"
     output_image_name_addbs = f"{input_image_name}_uw.png"
     output_image_name_addbs_fog = f"{input_image_name}_fog.png"
     output_image_name_bs = f"{input_image_name}_bs.png"
-    #output_image_name_cleanbs = f"{input_image_name}_bs_clean.png"
-    image = load_image(input_image)#load_image(input_image)
+    image = load_image(input_image)
     image_depth = None
     iters = 3000
-    image_depth = load_image(os.path.join(depth_gs_dir, f"{input_image_name}_gs{iters}_depth{ext}"),depth=True)
-    #matrix_to_text(image_depth, os.path.join(depth_text_dir, f"{input_image_name}_gs{iters}_depth.txt"))
+    image_depth = None
+
     
 
 
     clean_from_bs, bs_image, bs_dict, image_depth = preform_full_bs_removal(image, bs_dict=None, image_depth=image_depth, return_depth=True)
     save_image(os.path.join(clean_dir,output_image_name_cleanbs), clean_from_bs)
 
-    # bs_dict = {"Bc_inf": np.array([0.07,0.2,0.39]),
-    #             "betac_b": np.array([0.95, 0.85, 0.7]),
-    #             "betac_d": np.array([0.13, 0.12, 0.09])}
-    
-    # bs_dict = {"Bc_inf": np.array([0.6,0.6,0.6]), # bs dict fog
-    #             "betac_b": np.array([1.2, 1.2, 1.2]),
-    #             "betac_d": np.array([0.12, 0.12, 0.12])}
-    # Ic, image_depth, bs_image = preform_full_bds_addition(image, bs_dict, image_depth=None)
-    # save_image(os.path.join(add_dir,output_image_name_addbs_fog), Ic)
-    
-   
-
     save_image(os.path.join(depth_dir,output_image_name_depth), image_depth, depth=True)
     save_image(os.path.join(bs_dir,output_image_name_bs), bs_image)
     print(f'bs_dict: {bs_dict}')
     print(f'Processing {input_image_name} done')
-    #preform_full_bs_removal_path(input_image, os.path.join(bs_dir,output_image_name_cleanbs), image_depth=load_image(input_depth, depth=True))
 
-    
-    # seathru_nerf_data_dir = os.path.join('data', 'SeathruNeRF_dataset')
-    # preform_bs_on_dir(os.path.join(seathru_nerf_data_dir, 'Panama', 'images_wb'), os.path.join(seathru_nerf_data_dir, 'Panama', 'Panama_images_without_bs'))
 
 if __name__ == "__main__":
     main_run()
-    # preform_bsaddition_on_dir(os.path.join('data', 'SeathruNeRF_dataset', 'Fern', 'images'), os.path.join('data', 'SeathruNeRF_dataset', 'Fern', 'imagesUW'))

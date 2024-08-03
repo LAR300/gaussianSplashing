@@ -375,6 +375,7 @@ def training_report(iteration, Ll1, loss, l1_loss,
                                 wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/mask": wandb.Image(wb_torch2np(viewpoint.mask), caption=f'mask')}, step=iteration)
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_J": wandb.Image(wb_torch2np(rendered_J[None]), caption=f'rendered_J')}, step=iteration)
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_backscattering": wandb.Image(wb_torch2np(rendered_backscattering[None]), caption=f'rendered_backscattering')}, step=iteration)
+                            
 
                             wandb.run.log(data={"underwater/backscattering/Bd_histogram": wandb.Histogram(uw_tuple[2]["direct"].detach().cpu()),
                                                 "underwater/backscattering/Binf_histogram": wandb.Histogram(uw_tuple[2]["binf"].detach().cpu()),
