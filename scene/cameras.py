@@ -47,9 +47,7 @@ class Camera(nn.Module):
         else:
             self.original_image *= torch.ones((1, self.image_height, self.image_width), device=self.data_device)
         
-        if underwater_processing.startswith("HYB"):
-            self.image_depth_monocular = None
-            if underwater_processing=="HYBDEPTH":
+        if underwater_processing.startswith("HYBMONODEPTH"): #removal_using_monodepth
                 self.image_depth_monocular = depth_estimation(self.original_image.cpu().numpy())
                 self.image_depth_monocular =  torch.Tensor(self.image_depth_monocular).to('cuda').requires_grad_(False)
 

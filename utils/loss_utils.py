@@ -33,15 +33,8 @@ def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_p
         depth_map = render_pkg["rendered_depth"]
         if opt.lambda_bsest > 0:
             loss += opt.lambda_bsest * bs_loss(iteration=iteration, gt=gt_image, image_depth=depth_map, binf=binf, bs=bs, bs_dict=bs_dict)
-        if uw_flag == "HYBNORMAL":
-            predicted_normal_loss_val = predicted_normal_loss(render_pkg["normal"], render_pkg["normal_ref"], alpha=None)#render_pkg["alpha"])
-            if "delta_normal_norm" not in render_pkg.keys() and opt.lambda_delta_reg>0: assert()
-            if "delta_normal_norm" in render_pkg.keys():
-                delta_reg_loss_val = delta_normal_loss(render_pkg["delta_normal_norm"], alpha=None)# render_pkg["alpha"])
-            zero_one_loss_val = zero_one_loss(render_pkg["alpha"])
-            loss += opt.lambda_predicted_normal * predicted_normal_loss_val + opt.lambda_delta_reg * delta_reg_loss_val + opt.lambda_zero_one * zero_one_loss_val
             loss = loss + opt.opacity_reg * torch.abs(gaussians.get_opacity).mean()
-            # loss = loss + opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
+            loss = loss + opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
             
         
     return loss, Ll1, Ll2, Psnr
@@ -59,12 +52,13 @@ def bs_loss(iteration, gt, image_depth, binf, bs, bs_dict=None):
             _, _, curr_bs_dict = preform_full_bs_removal(gt.cpu().numpy(), bs_dict=None, image_depth=image_depth.detach().cpu().numpy().squeeze(axis=0), return_depth=False)
         except:
             print("Error in BS estimation")
-    if curr_bs_dict is None or not bool(curr_bs_dict):
+    if curr_bs_dict is None or not bool(curr_bs_dict)\
+    or np.isnan(curr_bs_dict['Bc_inf']).any() or  np.isnan(curr_bs_dict['betac_b']).any(): 
         return 0.0
     else:
         bs_dict = curr_bs_dict
     b_inf_gt = torch.Tensor(bs_dict['Bc_inf']).to(binf.device)
-    bs_gt = torch.Tensor(bs_dict['betac_b']).to(bs.device)
+    bs_gt = torch.Tensor(bs_dict['betac_b']).to(bs.device)  
     return 0.6 * torch.mean((binf - b_inf_gt) ** 2) + 0.4 * torch.mean((bs - bs_gt) ** 2)
 
 

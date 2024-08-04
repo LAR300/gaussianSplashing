@@ -54,10 +54,9 @@ class GaussianModel:
         if uw_flag.startswith("HYB"):
             self._direct = torch.empty(0)
             self._binf = torch.empty(0)
+            self._featuresbinf_dc = torch.empty(0)
+            self._featuresbinf_rest = torch.empty(0)
             self._bs = torch.empty(0)
-            if uw_flag == "HYBNORMAL":
-                self._normal = torch.empty(0)
-                self._normal2 = torch.empty(0)
         # end addition uw
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
@@ -81,6 +80,8 @@ class GaussianModel:
              # start addition uw
             self._direct,
             self._binf,
+            self._featuresbinf_dc,
+            self._featuresbinf_rest,
             self._bs,
             # end addition uw
             self._scaling,
@@ -118,6 +119,8 @@ class GaussianModel:
             # start addition uw
             self._direct,
             self._binf,
+            self._featuresbinf_dc,
+            self._featuresbinf_rest,
             self._bs,
             # end addition uw
             self._scaling, 
@@ -165,44 +168,21 @@ class GaussianModel:
         return torch.cat((features_dc, features_rest), dim=1)
      # start addition uw
     @property
-    def get_features_cmed(self):
-        featurescmed_dc = self._featurescmed_dc
-        featurescmed_rest = self._featurescmed_rest
-        return torch.cat((featurescmed_dc, featurescmed_rest), dim=1)
-    
-    @property
-    def get_opacity_med(self):
-        opacitymed_dc = self._opacitymed_dc
-        opacitymed_rest = self._opacitymed_rest   
-        return torch.cat((opacitymed_dc, opacitymed_rest), dim=1) # (P,16,1)
-    @property
     def get_direct(self):
         direct = self._direct
         return direct 
-        # return self.opacity_activation(direct ) #########################V2
     @property
     def get_binf(self):
         binf = self._binf
         return binf 
     @property
+    def get_featuresbinf(self):
+        featuresbinf_dc = self._featuresbinf_dc
+        featuresbinf_rest = self._featuresbinf_rest
+        return torch.cat((featuresbinf_dc, featuresbinf_rest), dim=1)
+    @property
     def get_minimum_axis(self):
         return get_minimum_axis(self.get_scaling, self.get_rotation)
-    #@property
-    def get_normal(self, dir_pp_normalized=None, return_delta=False):
-        normal_axis = self.get_minimum_axis
-        normal_axis = normal_axis
-        normal_axis, positive = flip_align_view(normal_axis, dir_pp_normalized)
-        delta_normal1 = self._normal  # (N, 3) 
-        delta_normal2 = self._normal2 # (N, 3) 
-        delta_normal = torch.stack([delta_normal1, delta_normal2], dim=-1) # (N, 3, 2)
-        idx = torch.where(positive, 0, 1).long()[:,None,:].repeat(1, 3, 1) # (N, 3, 1)
-        delta_normal = torch.gather(delta_normal, index=idx, dim=-1).squeeze(-1) # (N, 3)
-        normal = delta_normal + normal_axis 
-        normal = normal/normal.norm(dim=1, keepdim=True) # (N, 3)
-        if return_delta:
-            return normal, delta_normal
-        else:
-            return normal
     @property
     def get_bs(self):
         bs = self._bs
@@ -266,6 +246,8 @@ class GaussianModel:
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda() # (P,3,16)
         features[:, :3, 0 ] = fused_color # (P,3,1) or (P,3), first coefficient represents the DC
         features[:, 3:, 1:] = 0.0 # (P,0,15)
+        
+        featuresuw = torch.zeros((1, 3, (self.max_sh_degree + 1) ** 2)).float().cuda() # (1,3,16)
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
 
@@ -292,14 +274,11 @@ class GaussianModel:
             binf_ini = torch.Tensor([0.0611105 , 0.09450259, 0.14404887]).cuda()
             #binf_ini = torch.Tensor([0.15113972, 0.23778467, 0.25      ]).cuda()
             self._binf = nn.Parameter(binf_ini).contiguous().requires_grad_(True)  # (1,3)
+            self._featuresbinf_dc = nn.Parameter(featuresuw[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
+            self._featuresbinf_rest = nn.Parameter(featuresuw[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
             bs_ini = torch.Tensor([0.25      , 0.06863068, 0.03780112]).cuda()
             #bs_ini = torch.Tensor([0.25, 0.12123746, 0.15481124]).cuda()
             self._bs = nn.Parameter(bs_ini.contiguous().requires_grad_(True)) # (1,3)
-            if self.uw_flag == "HYBNORMAL":
-                normals = np.zeros_like(np.asarray(pcd.points, dtype=np.float32))
-                normals2 = np.copy(normals)
-                self._normal = nn.Parameter(torch.from_numpy(normals).to(self._xyz.device).requires_grad_(True))
-                self._normal2 = nn.Parameter(torch.from_numpy(normals2).to(self._xyz.device).requires_grad_(True))
             # end addition uw
 
     def training_setup(self, training_args):
@@ -307,38 +286,23 @@ class GaussianModel:
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         if self.uw_flag.startswith("HYB"):
-            if self.uw_flag == "HYBNORMAL":
-                self._normal.requires_grad_(requires_grad=False)
-                self._normal2.requires_grad_(requires_grad=False)
-                l = [
-                {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
-                {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
-                {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
-                # start addition uw
-                {'params': [self._direct], 'lr': training_args.feature_lr, "name": "direct"}, # using the same learning rate 
-                {'params': [self._binf], 'lr': training_args.feature_lr , "name": "binf"}, # using the same learning rate 
-                {'params': [self._bs], 'lr': training_args.feature_lr, "name": "bs"}, # using the same learning rate 
-                {'params': [self._normal], 'lr': training_args.normal_lr, "name": "normal"},
-                {'params': [self._normal2], 'lr': training_args.normal_lr, "name": "normal2"},
-                # end addition uw
-                {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
-                {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
-                {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
-                ]
-            else:
-                l = [
-                {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
-                {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
-                {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
-                # start addition uw
-                {'params': [self._direct], 'lr': training_args.feature_lr, "name": "direct"}, # using the same learning rate 
-                {'params': [self._binf], 'lr': training_args.feature_lr , "name": "binf"}, # using the same learning rate 
-                {'params': [self._bs], 'lr': training_args.feature_lr, "name": "bs"}, # using the same learning rate 
-                # end addition uw
-                {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
-                {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
-                {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
-            ]
+            l = [
+            {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
+            {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
+            {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
+            # start addition uw
+            {'params': [self._direct], 'lr': training_args.feature_lr, "name": "direct"}, # using the same learning rate 
+            {'params': [self._binf], 'lr': training_args.feature_lr , "name": "binf"}, # using the same learning rate 
+            
+            {'params': [self._featuresbinf_dc], 'lr': training_args.feature_lr, "name": "fbinf_dc"},
+            {'params': [self._featuresbinf_rest], 'lr': training_args.feature_lr / 20.0, "name": "fbinf_rest"},
+            
+            {'params': [self._bs], 'lr': training_args.feature_lr, "name": "bs"}, # using the same learning rate 
+            # end addition uw
+            {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
+            {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
+            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
+        ]
         else:
             l = [
                 {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
@@ -389,14 +353,6 @@ class GaussianModel:
             direct = self._direct.detach().cpu().numpy()
             binf = self._binf.detach().cpu().numpy()
             bs = self._bs.detach().cpu().numpy()
-            if self.uw_flag == "HYBNORMAL":
-                normals = self._normal.detach().cpu().numpy()# np.zeros_like(xyz) if not self.brdf else self._normal.detach().cpu().numpy()
-                normals2 = self._normal2.detach().cpu().numpy() #if (self.brdf) else np.zeros_like(xyz)
-                
-                if viewer_fmt:
-                    f_dc = 0.5 + (0.5*normals)
-                    f_rest = np.zeros((f_rest.shape[0], 45))
-                    normals = np.zeros_like(normals)
             # end addition uw
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
@@ -407,7 +363,7 @@ class GaussianModel:
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
         if self.uw_flag.startswith("HYB"):
 
-            attributes = np.concatenate((xyz, normals, normals2, f_dc, f_rest, opacities, scale, rotation), axis=1) if self.uw_flag == "HYBNORMAL" else np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1) # with uw addition
+            attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1) # with uw addition
 
             #attributes = np.concatenate((xyz, normals, f_dc, f_rest, direct, np.broadcast_to(binf, (xyz.shape[0],) + binf.shape[1:]), bs, opacities, scale, rotation), axis=1) # with uw addition
         else:
@@ -422,14 +378,6 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 
-        # ################V2
-        # direct_new = inverse_sigmoid(torch.min(self.get_direct, torch.ones_like(self.get_direct)))
-        # optimizable_tensors = self.replace_tensor_to_optimizer(direct_new, "direct")
-        # self._direct = optimizable_tensors["direct"]
-        # ################V2
-
-
-
     # start addition uw
     def enforce_constraints_hyb(self, direct_range=(0.1,1), binf_range=(0.1,0.8), bs_range=(0.1,1)):
         self._direct.data.clamp_(direct_range[0], direct_range[1]) 
@@ -437,20 +385,6 @@ class GaussianModel:
         self._bs.data.clamp_(bs_range[0], bs_range[1])
         
     
-    def reset_opacity_med(self):
-        fused_opacitymed = RGB2SH(torch.tensor(np.asarray([[0.01]])).float().cuda())
-        featuresopmed = torch.zeros((self.get_xyz.shape[0], 1, (self.max_sh_degree + 1) ** 2)).float().cuda() # (P,1,16)
-        featuresopmed[:, :1, 0 ] = fused_opacitymed # (P,1,1) or (P,1), first coefficient represents the DC
-        featuresopmed[:, 1:, 1:] = 0.0 # (P,0,15)
-        _featuresopmed = torch.cat((featuresopmed[:,:,0:1].transpose(1, 2).contiguous(), featuresopmed[:,:,1:].transpose(1, 2).contiguous()), dim=1)
-        opacitymed_gath = torch.where(torch.abs(self.get_opacity_med) < torch.abs(_featuresopmed), self.get_opacity_med, _featuresopmed)
-        
-        featuresopmed_dc = opacitymed_gath[:,:1,:].transpose(1, 2).contiguous()
-        featuresopmed_rest = opacitymed_gath[:,1:,:].transpose(1, 2).contiguous()
-        optimizable_tensors = self.replace_tensor_to_optimizer(featuresopmed_dc, "opacitymed_dc")
-        self._opacitymed_dc = optimizable_tensors["opacitymed_dc"]
-        optimizable_tensors = self.replace_tensor_to_optimizer(featuresopmed_rest, "opacitymed_rest")
-        self._opacitymed_rest = optimizable_tensors["opacitymed_rest"]
     def reset_hyb(self):
         direct_new = torch.min(self.get_direct, torch.ones_like(self.get_direct)*0.01)
         optimizable_tensors = self.replace_tensor_to_optimizer(direct_new, "direct")
@@ -508,15 +442,6 @@ class GaussianModel:
             self._direct = nn.Parameter(torch.tensor(direct, dtype=torch.float, device="cuda").requires_grad_(True))
             self._binf = nn.Parameter(torch.tensor(binf, dtype=torch.float, device="cuda").requires_grad_(True))
             self._bs = nn.Parameter(torch.tensor(bs, dtype=torch.float, device="cuda").requires_grad_(True))
-            if self.uw_flag == "HYBNORMAL":
-                normal = np.stack((np.asarray(plydata.elements[0]["nx"]),
-                                np.asarray(plydata.elements[0]["ny"]),
-                                np.asarray(plydata.elements[0]["nz"])),  axis=1)
-                normal2 = np.stack((np.asarray(plydata.elements[0]["nx2"]),
-                                np.asarray(plydata.elements[0]["ny2"]),
-                                np.asarray(plydata.elements[0]["nz2"])),  axis=1)
-                self._normal = nn.Parameter(torch.tensor(normal, dtype=torch.float, device="cuda").requires_grad_(True))
-                self._normal2 = nn.Parameter(torch.tensor(normal2, dtype=torch.float, device="cuda").requires_grad_(True))
             # end addition uw
         self.active_sh_degree = self.max_sh_degree
 
@@ -539,7 +464,8 @@ class GaussianModel:
     def _prune_optimizer(self, mask):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
-            if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs": # binf is a general parameter
+            if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs" \
+                or group["name"] == "fbinf_dc" or group["name"] == "fbinf_rest": # binf is a general parameter
             #if group["name"] == "binf" or group["name"] == "bs": #########################V2
                 continue
             stored_state = self.optimizer.state.get(group['params'][0], None)
@@ -573,17 +499,14 @@ class GaussianModel:
 
         self.denom = self.denom[valid_points_mask]
         self.max_radii2D = self.max_radii2D[valid_points_mask]
-        if self.uw_flag == "HYBNORMAL":
-            self._normal = optimizable_tensors["normal"]
-            self._normal2 = optimizable_tensors["normal2"]
 
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             assert len(group["params"]) == 1
 
-            if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs": # binf is a general parameter
-            #if group["name"] == "binf" or group["name"] == "bs": #########################V2
+            if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs"\
+                 or group["name"] == "fbinf_dc" or group["name"] == "fbinf_rest": # binf is a general parameter
                 continue
             
             extension_tensor = tensors_dict[group["name"]]
@@ -632,20 +555,8 @@ class GaussianModel:
     def densification_postfix_uwhyb(self, new_xyz, 
                               new_features_dc, new_features_rest,
                               new_opacities, new_scaling, new_rotation
-                              ,new_normal=None, new_normal2=None, reset_params=True):
+                              ,reset_params=True):
         d = {"xyz": new_xyz,
-        "f_dc": new_features_dc,
-        "f_rest": new_features_rest,
-        # start addition uw
-        #"direct": new_direct,
-        #"binf": new_binf,
-        #"bs": new_bs,
-        "normal" : new_normal,
-        "normal2" : new_normal2,
-        # end addition uw
-        "opacity": new_opacities,
-        "scaling" : new_scaling,
-        "rotation" : new_rotation} if self.uw_flag == "HYBNORMAL" else {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
         # start addition uw
@@ -665,9 +576,6 @@ class GaussianModel:
         #self._direct = optimizable_tensors["direct"]
         #self._binf = optimizable_tensors["binf"]
         #self._bs = optimizable_tensors["bs"]
-        if self.uw_flag == "HYBNORMAL":
-            self._normal = optimizable_tensors["normal"]
-            self._normal2 = optimizable_tensors["normal2"]
         # end addition uw
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
@@ -706,9 +614,7 @@ class GaussianModel:
 
         
         if self.uw_flag.startswith("HYB"):
-            new_normal = self._normal[selected_pts_mask].repeat(N,1) if self.uw_flag == "HYBNORMAL" else None
-            new_normal2 = self._normal2[selected_pts_mask].repeat(N,1) if self.uw_flag == "HYBNORMAL" else None
-            self.densification_postfix_uwhyb(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_normal, new_normal2) # with uw addition
+            self.densification_postfix_uwhyb(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, reset_params=True) # with uw addition
         else:
             self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation) # without uw addition
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
@@ -728,35 +634,26 @@ class GaussianModel:
         new_rotation = self._rotation[selected_pts_mask]
 
         if self.uw_flag.startswith("HYB"):
-            new_normal = self._normal[selected_pts_mask] if self.uw_flag == "HYBNORMAL" else None
-            new_normal2 = self._normal2[selected_pts_mask] if self.uw_flag == "HYBNORMAL" else None
-            self.densification_postfix_uwhyb(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_normal, new_normal2) # with uw addition
+            self.densification_postfix_uwhyb(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, reset_params=True) # with uw addition
         else:
             self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation) # without uw addition
         
 
-    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
+    def densify_and_prune(self, max_grad, extent):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
 
-        
         self.densify_and_clone(grads, max_grad, extent)
         self.densify_and_split(grads, max_grad, extent)
 
-        prune_mask = (self.get_opacity < min_opacity).squeeze()
-        if max_screen_size:
-            big_points_vs = self.max_radii2D > max_screen_size
-            big_points_ws = self.get_scaling.max(dim=1).values > 0.008 * extent
-            prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
-        self.prune_points(prune_mask)
-
         torch.cuda.empty_cache()
     
-    def densify_and_prune_by_size(self, min_opacity, extent, max_screen_size):
+    def densify_and_prune_by_size(self, min_opacity, max_screen_size=False):
         prune_mask = (self.get_opacity < min_opacity).squeeze()
         if max_screen_size:
-            big_points_vs = self.max_radii2D > max_screen_size
-            big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+            big_points_vs = self.max_radii2D > np.percentile(self.max_radii2D.detach().cpu().numpy(), 99.9)
+            #big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+            big_points_ws = self.get_scaling.max(dim=1).values > np.percentile(self.get_scaling.max(dim=1).values.detach().cpu().numpy(), 99.9)
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
         self.prune_points(prune_mask)
 
@@ -786,8 +683,8 @@ class GaussianModel:
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             assert len(group["params"]) == 1
-            if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs": # binf is a general parameter
-            #if group["name"] == "binf" or group["name"] == "bs": #########################V2
+            if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs"\
+                 or group["name"] == "fbinf_dc" or group["name"] == "fbinf_rest": # binf is a general parameter
                 continue
             tensor = tensors_dict[group["name"]]
             stored_state = self.optimizer.state.get(group['params'][0], None)

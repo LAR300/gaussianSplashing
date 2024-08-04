@@ -104,11 +104,11 @@ class ModelParams(ParamGroup):
         self._images = "images"
         self.initialization_points_option = "pointcloud" # "cluster", "pointcloud", "random"
         self._resolution = -1
-        self.underwater_processing = "OFF" # "OFF", "HYB", "HYBDEPTH"
+        self.underwater_processing = "OFF" # "OFF", "HYB"
         self._white_background = False
         self.data_device = "cuda"
         self.densification = "OFF" # "OFF", "MCMC"
-        self.cap_max = 800000
+        self.cap_max = 200000
         self.eval = True # if True, use train and testset, else, only one set
         super().__init__(parser, "Loading Parameters", sentinel)
 
@@ -165,7 +165,7 @@ class OptimizationParams(ParamGroup):
         self.densify_from_iter = 1500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
-        self.remove_min_opacity_threshold  = 0.3
+        self.remove_min_opacity_threshold  = 0.1
         self.random_background = False
         self.noise_lr = 5e5
         self.scale_reg = 0.01
@@ -190,7 +190,7 @@ def add_general_params(parser):
     group_general_args.add_argument('--port', type=int, default=-1)
     group_general_args.add_argument('--debug_from', type=int, default=-1)
     group_general_args.add_argument('--detect_anomaly', action='store_true', default=False)
-    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 7000, 10_000, 20_000 , 30_000, 50_000]) # default=[7_000, 30_000]
+    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 1500, 2250, 3000, 4500, 7000, 10_000, 20_000 , 30_000, 50_000]) # default=[7_000, 30_000]
     group_general_args.add_argument("--save_iterations", nargs="+", type=int, default=[75_000])
     group_general_args.add_argument("--quiet", action="store_true")
     group_general_args.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])

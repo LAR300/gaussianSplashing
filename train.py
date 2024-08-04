@@ -129,13 +129,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background # [0,0,0] most of the times
         if dataset.underwater_processing.startswith("HYB"):
-            if dataset.underwater_processing == "HYBNORMAL":
-                gaussians.set_requires_grad("normal", state=iteration >= 0)
-                gaussians.set_requires_grad("normal2", state=iteration >= 0)
-            if dataset.underwater_processing == "HYBDEPTH" and iteration > 30000:
-                render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag="HYB")
-            else:
-                render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
+            render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
                 
             image, depth_map, rendered_J, rendered_backscattering, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_J"], render_pkg["rendered_backscattering"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             
@@ -164,8 +158,8 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 progress_bar.close()
 
             # Log and save
-            im_test_flag = True # monocular depth while in HYBDEPTH mode, for testing with regular depth
-            training_rep_uw = "HYB" if dataset.underwater_processing == "HYBDEPTH" and iteration > 500 else dataset.underwater_processing 
+            im_test_flag = True
+            training_rep_uw =  dataset.underwater_processing 
             if cfg_dot_dic.GeneralParameters.save_for_metrics and iteration == opt.iterations:
                 
                 viewpoint_stack = scene.getTrainCameras().copy()
@@ -226,15 +220,15 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
                     if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                        size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                        gaussians.densify_and_prune(opt.densify_grad_threshold, opt.remove_min_opacity_threshold, scene.cameras_extent, size_threshold)
+                        gaussians.densify_and_prune_by_size(opt.remove_min_opacity_threshold, max_screen_size=True)
+                        gaussians.densify_and_prune(opt.densify_grad_threshold, scene.cameras_extent)
 
                     if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                         gaussians.reset_opacity()
                         
             elif dataset.densification == "MCMC":
                 if iteration < opt.densify_until_iter and iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                    dead_mask = (gaussians.get_opacity <= 0.005).squeeze(-1)
+                    dead_mask = (gaussians.get_opacity <= opt.remove_min_opacity_threshold).squeeze(-1)
                     gaussians.relocate_gs(dead_mask=dead_mask)
                     gaussians.add_new_gs(cap_max=args.cap_max)
                 
@@ -386,16 +380,7 @@ def training_report(iteration, Ll1, loss, l1_loss,
                             #     save_backscatter_plot(render_pkg["rendered_depth"], render_pkg["rendered_backscattering"], str_name=config['name'] + f"_view/image_{viewpoint.image_name}/bc_plot",
                             #                         wandb=wandb, iteration=iteration)
         
-                            if uw_tuple[0] == "HYBNORMAL":
-                                normal_depth = apply_depth_colormap(-render_pkg["depth"][0][...,None]).permute(2,0,1)
-                                wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/normal_depth": wandb.Image(wb_torch2np(normal_depth), caption=f'normal_depth')}, step=iteration)
-                                normal_alpha = apply_depth_colormap(render_pkg["alpha"][0][...,None], min=0., max=1.).permute(2,0,1)
-                                wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/normal_alpha": wandb.Image(wb_torch2np(normal_alpha), caption=f'normal_alpha')}, step=iteration)
-                                if "normal" in render_pkg.keys():
-                                        render_pkg["normal"] = 0.5 + (0.5*render_pkg["normal"]) # (-1, 1) -> (0, 1)
-                                        normals = torch.clamp(render_pkg["normal"], 0.0, 1.0)
-                                        wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/normals": wandb.Image(wb_torch2np(normals), caption=f'normals')}, step=iteration)
-                            
+
                         if iteration == testing_iterations[0]:
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/ground-truth": wandb.Image(wb_torch2np(gt_image[None]), caption=f'gt')}, step=iteration)
                             
