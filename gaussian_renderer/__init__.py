@@ -45,6 +45,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         projmatrix=viewpoint_camera.full_proj_transform,
         sh_degree=pc.active_sh_degree,
         campos=viewpoint_camera.camera_center,
+        camera_front_dir_in_world=viewpoint_camera.camera_front_dir_in_world,
         prefiltered=False,
         debug=pipe.debug
     )

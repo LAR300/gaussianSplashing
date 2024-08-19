@@ -61,6 +61,8 @@ class Camera(nn.Module):
         self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1).cuda()
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
         self.camera_center = self.world_view_transform.inverse()[3, :3]
+        point_in_front_of_camera = torch.tensor([0.0, 0.0, 1.0, 1.0], device='cuda:0')
+        self.camera_front_dir_in_world = torch.matmul(self.world_view_transform .inverse().transpose(0,1), point_in_front_of_camera)[:3]
     def get_calib_matrix_nerf(self):
             focal = fov2focal(self.FoVx, self.image_width)  # original focal length
             intrinsic_matrix = torch.tensor([[focal, 0, self.image_width / 2], [0, focal, self.image_height / 2], [0, 0, 1]]).float()

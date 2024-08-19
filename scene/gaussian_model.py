@@ -271,9 +271,9 @@ class GaussianModel:
             direct_ini = torch.Tensor([[0.007,0.008,0.008]]).cuda()
             self._direct = nn.Parameter(direct_ini).contiguous().requires_grad_(True)  # (1,3)
             #self._direct = nn.Parameter(torch.zeros_like(fused_point_cloud,device="cuda").contiguous().requires_grad_(True))  # (P,3) #########################V2
-            binf_ini = torch.Tensor([0.0611105 , 0.09450259, 0.14404887]).cuda()
+            # binf_ini = torch.Tensor([0.0611105 , 0.09450259, 0.14404887]).cuda()
             #binf_ini = torch.Tensor([0.15113972, 0.23778467, 0.25      ]).cuda()
-            self._binf = nn.Parameter(binf_ini).contiguous().requires_grad_(True)  # (1,3)
+            self._binf = nn.Parameter(zero_3).contiguous().requires_grad_(True)  # (1,3)
             self._featuresbinf_dc = nn.Parameter(featuresuw[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
             self._featuresbinf_rest = nn.Parameter(featuresuw[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
             bs_ini = torch.Tensor([0.25      , 0.06863068, 0.03780112]).cuda()
