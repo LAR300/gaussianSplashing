@@ -76,6 +76,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         direct = pc.get_direct
         binf = pc.get_binf
         featuresbinf = pc.get_featuresbinf
+        featuresbs = pc.get_featuresbs
+        featuresdirect = pc.get_featuresdirect
         bs = pc.get_bs
 
     if override_color is None: # usually None
@@ -104,6 +106,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             direct = direct,
             binf = binf,
             featuresbinf = featuresbinf, 
+            featuresbs = featuresbs, 
+            featuresdirect = featuresdirect, 
             bs = bs,
             monodepth = pre_depth,
             # end addition uw

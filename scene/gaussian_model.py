@@ -56,6 +56,10 @@ class GaussianModel:
             self._binf = torch.empty(0)
             self._featuresbinf_dc = torch.empty(0)
             self._featuresbinf_rest = torch.empty(0)
+            self._featuresbs_dc = torch.empty(0)
+            self._featuresbs_rest = torch.empty(0)
+            self._featuresdirect_dc = torch.empty(0)
+            self._featuresdirect_rest = torch.empty(0)
             self._bs = torch.empty(0)
         # end addition uw
         self._scaling = torch.empty(0)
@@ -82,6 +86,10 @@ class GaussianModel:
             self._binf,
             self._featuresbinf_dc,
             self._featuresbinf_rest,
+            self._featuresbs_dc,
+            self._featuresbs_rest,
+            self._featuresdirect_dc,
+            self._featuresdirect_rest,
             self._bs,
             # end addition uw
             self._scaling,
@@ -121,6 +129,10 @@ class GaussianModel:
             self._binf,
             self._featuresbinf_dc,
             self._featuresbinf_rest,
+            self._featuresbs_dc,
+            self._featuresbs_rest,
+            self._featuresdirect_dc,
+            self._featuresdirect_rest,
             self._bs,
             # end addition uw
             self._scaling, 
@@ -180,6 +192,16 @@ class GaussianModel:
         featuresbinf_dc = self._featuresbinf_dc
         featuresbinf_rest = self._featuresbinf_rest
         return torch.cat((featuresbinf_dc, featuresbinf_rest), dim=1)
+    @property
+    def get_featuresbs(self):
+        featuresbs_dc = self._featuresbs_dc
+        featuresbs_rest = self._featuresbs_rest
+        return torch.cat((featuresbs_dc, featuresbs_rest), dim=1)
+    @property
+    def get_featuresdirect(self):
+        featuresdirect_dc = self._featuresdirect_dc
+        featuresdirect_rest = self._featuresdirect_rest
+        return torch.cat((featuresdirect_dc, featuresdirect_rest), dim=1)
     @property
     def get_minimum_axis(self):
         return get_minimum_axis(self.get_scaling, self.get_rotation)
@@ -268,17 +290,21 @@ class GaussianModel:
         if self.uw_flag.startswith("HYB"):
             # start addition uw
             zero_3 = torch.zeros((1, 3), device="cuda")
-            direct_ini = torch.Tensor([[0.007,0.008,0.008]]).cuda()
-            self._direct = nn.Parameter(direct_ini).contiguous().requires_grad_(True)  # (1,3)
+            #direct_ini = torch.Tensor([[0.007,0.008,0.008]]).cuda()
+            self._direct = nn.Parameter(zero_3).contiguous().requires_grad_(True)  # (1,3)
             #self._direct = nn.Parameter(torch.zeros_like(fused_point_cloud,device="cuda").contiguous().requires_grad_(True))  # (P,3) #########################V2
             # binf_ini = torch.Tensor([0.0611105 , 0.09450259, 0.14404887]).cuda()
             #binf_ini = torch.Tensor([0.15113972, 0.23778467, 0.25      ]).cuda()
             self._binf = nn.Parameter(zero_3).contiguous().requires_grad_(True)  # (1,3)
             self._featuresbinf_dc = nn.Parameter(featuresuw[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
             self._featuresbinf_rest = nn.Parameter(featuresuw[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
-            bs_ini = torch.Tensor([0.25      , 0.06863068, 0.03780112]).cuda()
+            self._featuresbs_dc = nn.Parameter(featuresuw[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
+            self._featuresbs_rest = nn.Parameter(featuresuw[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
+            self._featuresdirect_dc = nn.Parameter(featuresuw[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
+            self._featuresdirect_rest = nn.Parameter(featuresuw[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
+            #bs_ini = torch.Tensor([0.25      , 0.06863068, 0.03780112]).cuda()
             #bs_ini = torch.Tensor([0.25, 0.12123746, 0.15481124]).cuda()
-            self._bs = nn.Parameter(bs_ini.contiguous().requires_grad_(True)) # (1,3)
+            self._bs = nn.Parameter(zero_3.contiguous().requires_grad_(True)) # (1,3)
             # end addition uw
 
     def training_setup(self, training_args):
@@ -296,6 +322,10 @@ class GaussianModel:
             
             {'params': [self._featuresbinf_dc], 'lr': training_args.feature_lr, "name": "fbinf_dc"},
             {'params': [self._featuresbinf_rest], 'lr': training_args.feature_lr / 20.0, "name": "fbinf_rest"},
+            {'params': [self._featuresbs_dc], 'lr': training_args.feature_lr, "name": "fbs_dc"},
+            {'params': [self._featuresbs_rest], 'lr': training_args.feature_lr / 20.0, "name": "fbs_rest"},
+            {'params': [self._featuresdirect_dc], 'lr': training_args.feature_lr, "name": "fdirect_dc"},
+            {'params': [self._featuresdirect_rest], 'lr': training_args.feature_lr / 20.0, "name": "fdirect_rest"},
             
             {'params': [self._bs], 'lr': training_args.feature_lr, "name": "bs"}, # using the same learning rate 
             # end addition uw
@@ -465,9 +495,10 @@ class GaussianModel:
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
             if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs" \
-                or group["name"] == "fbinf_dc" or group["name"] == "fbinf_rest": # binf is a general parameter
-            #if group["name"] == "binf" or group["name"] == "bs": #########################V2
-                continue
+                or group["name"] == "fbinf_dc" or group["name"] == "fbinf_rest" \
+                    or group["name"] == "fbs_dc" or group["name"] == "fbs_rest" \
+                        or group["name"] == "fdirect_dc" or group["name"] == "fdirect_rest":
+                    continue
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
                 stored_state["exp_avg"] = stored_state["exp_avg"][mask]
@@ -505,9 +536,11 @@ class GaussianModel:
         for group in self.optimizer.param_groups:
             assert len(group["params"]) == 1
 
-            if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs"\
-                 or group["name"] == "fbinf_dc" or group["name"] == "fbinf_rest": # binf is a general parameter
-                continue
+            if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs" \
+                or group["name"] == "fbinf_dc" or group["name"] == "fbinf_rest" \
+                    or group["name"] == "fbs_dc" or group["name"] == "fbs_rest" \
+                        or group["name"] == "fdirect_dc" or group["name"] == "fdirect_rest":
+                    continue
             
             extension_tensor = tensors_dict[group["name"]]
             stored_state = self.optimizer.state.get(group['params'][0], None)

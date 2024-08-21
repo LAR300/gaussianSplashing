@@ -16,9 +16,10 @@ from torch.autograd import Variable
 from math import exp
 
 from utils.image_utils import erode, psnr
+from utils.sh_utils import eval_sh
 from uw_formation.backscatter import preform_full_bs_removal
 
-def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_pkg=None, bs_dict=None):
+def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_pkg=None, bs_dict=None, uw_additions=None):
     # Loss
     Ll1 = l1_loss(image, gt_image)
     Ll2 = l2_loss(image, gt_image).detach()
@@ -26,13 +27,11 @@ def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_p
     loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
     #loss = 0.6 * Ll1 + 0.4 * (1.0 - ssim(image, gt_image))
     if uw_flag.startswith("HYB"): 
-        
-        # if iteration > opt.densify_from_iter:
-        binf = render_pkg["binf"]
-        bs = render_pkg["bs"]
         depth_map = render_pkg["rendered_depth"]
         if opt.lambda_bsest > 0:
-            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gt=gt_image, image_depth=depth_map, binf=binf, bs=bs, bs_dict=bs_dict)
+            # binf = render_pkg["binf"]
+            # bs = render_pkg["bs"]
+            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gt=gt_image, image_depth=depth_map, binf=uw_additions["binf"], bs=uw_additions["bs"], bs_dict=bs_dict)
             loss = loss + opt.opacity_reg * torch.abs(gaussians.get_opacity).mean()
             loss = loss + opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
             

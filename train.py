@@ -28,6 +28,7 @@ from utils.image_utils import psnr, apply_depth_colormap
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams, WandbParams, UnderwaterParams, NestedDict, add_general_params, write_dictionary_to_file
 import wandb
+from utils.sh_utils import eval_sh
 from uw_formation.depthmap import depth_estimation
 from uw_formation.plotBs import save_backscatter_plot
 from scene.gaussian_model import build_scaling_rotation
@@ -133,7 +134,10 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 
             image, depth_map, rendered_J, rendered_backscattering, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_J"], render_pkg["rendered_backscattering"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             
-            uw_additions["direct"], uw_additions["binf"], uw_additions["bs"] = render_pkg["direct"], render_pkg["binf"], render_pkg["bs"]
+            #uw_additions["direct"], uw_additions["binf"], uw_additions["bs"] = render_pkg["direct"], render_pkg["binf"], render_pkg["bs"]
+            uw_additions["binf"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbinf, viewpoint_cam.camera_front_dir_in_world)
+            uw_additions["bs"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs, viewpoint_cam.camera_front_dir_in_world)
+            uw_additions["direct"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect, viewpoint_cam.camera_front_dir_in_world)
         else:
             render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
@@ -143,7 +147,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         # Underwater backscatter removal
         gt_image = viewpoint_cam.original_image.cuda()
         # Loss
-        loss, Ll1, Ll2, Psnr = loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict)
+        loss, Ll1, Ll2, Psnr = loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict, uw_additions=uw_additions)
         loss.backward()
 
         iter_end.record()
@@ -370,7 +374,7 @@ def training_report(iteration, Ll1, loss, l1_loss,
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_J": wandb.Image(wb_torch2np(rendered_J[None]), caption=f'rendered_J')}, step=iteration)
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_backscattering": wandb.Image(wb_torch2np(rendered_backscattering[None]), caption=f'rendered_backscattering')}, step=iteration)
                             
-
+                            
                             wandb.run.log(data={"underwater/backscattering/Bd_histogram": wandb.Histogram(uw_tuple[2]["direct"].detach().cpu()),
                                                 "underwater/backscattering/Binf_histogram": wandb.Histogram(uw_tuple[2]["binf"].detach().cpu()),
                                                 "underwater/backscattering/Bs_histogram": wandb.Histogram(uw_tuple[2]["bs"].detach().cpu())
