@@ -16,10 +16,9 @@ from torch.autograd import Variable
 from math import exp
 
 from utils.image_utils import erode, psnr
-from utils.sh_utils import eval_sh
 from uw_formation.backscatter import preform_full_bs_removal
 
-def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_pkg=None, bs_dict=None, uw_additions=None):
+def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_pkg=None, bs_dict=None, uw_additions=None, uw=None):
     # Loss
     Ll1 = l1_loss(image, gt_image)
     Ll2 = l2_loss(image, gt_image).detach()
@@ -31,7 +30,7 @@ def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_p
         if opt.lambda_bsest > 0:
             # binf = render_pkg["binf"]
             # bs = render_pkg["bs"]
-            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gt=gt_image, image_depth=depth_map, binf=uw_additions["binf"], bs=uw_additions["bs"], bs_dict=bs_dict)
+            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gt=gt_image, image_depth=depth_map, binf=uw_additions["binf"], bs=uw_additions["bs"], bs_dict=bs_dict, uw=uw)
             loss = loss + opt.opacity_reg * torch.abs(gaussians.get_opacity).mean()
             loss = loss + opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
             
@@ -44,9 +43,9 @@ def l1_loss(network_output, gt):
 def l2_loss(network_output, gt):
     return ((network_output - gt) ** 2).mean()
 
-def bs_loss(iteration, gt, image_depth, binf, bs, bs_dict=None):
+def bs_loss(iteration, gt, image_depth, binf, bs, bs_dict=None, uw=None):
     curr_bs_dict = bs_dict
-    if iteration > 3000  and iteration % 500 == 0:
+    if iteration > uw.remove_bs_every*5  and iteration % uw.remove_bs_every == 0:
         try:
             _, _, curr_bs_dict = preform_full_bs_removal(gt.cpu().numpy(), bs_dict=None, image_depth=image_depth.detach().cpu().numpy().squeeze(axis=0), return_depth=False)
         except:

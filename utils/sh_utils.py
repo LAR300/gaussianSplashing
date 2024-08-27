@@ -54,56 +54,6 @@ C4 = [
     0.6258357354491761,
 ]   
 
-def computeColorFromSH_UW(deg, viewmatrix, current_shs):
-    # Extract the forward direction vector (third column of the matrix)
-    dir = torch.Tensor([
-        -1 * viewmatrix[0,2],  # r02
-        -1 * viewmatrix[1,2],  # r12
-        -1 * viewmatrix[2,2]  # r22
-    ])
-    
-    # Normalize the direction vector
-    length = torch.linalg.norm(dir)
-    if length > 0.0:
-        dir /= length
-    
-    # Initialize the result with the first SH coefficient
-    result = C0 * current_shs[0]
-    
-    if deg > 0:
-        x, y, z = dir
-        result = (result
-                  - C1 * y * current_shs[1]
-                  + C1 * z * current_shs[2]
-                  - C1 * x * current_shs[3])
-        
-        if deg > 1:
-            xx, yy, zz = x * x, y * y, z * z
-            xy, yz, xz = x * y, y * z, x * z
-            
-            result += (C2[0] * xy * current_shs[4]
-                       + C2[1] * yz * current_shs[5]
-                       + C2[2] * (2.0 * zz - xx - yy) * current_shs[6]
-                       + C2[3] * xz * current_shs[7]
-                       + C2[4] * (xx - yy) * current_shs[8])
-            
-            if deg > 2:
-                result += (C3[0] * y * (3.0 * xx - yy) * current_shs[9]
-                           + C3[1] * xy * z * current_shs[10]
-                           + C3[2] * y * (4.0 * zz - xx - yy) * current_shs[11]
-                           + C3[3] * z * (2.0 * zz - 3.0 * xx - 3.0 * yy) * current_shs[12]
-                           + C3[4] * x * (4.0 * zz - xx - yy) * current_shs[13]
-                           + C3[5] * z * (xx - yy) * current_shs[14]
-                           + C3[6] * x * (xx - 3.0 * yy) * current_shs[15])
-    
-    result += 0.5
-    
-
-    # Ensure the result is non-negative
-    result = torch.maximum(result, 0.0)
-    
-    return result
-
 
 def eval_sh(deg, sh, dirs):
     """
@@ -160,7 +110,8 @@ def eval_sh(deg, sh, dirs):
                             C4[6] * (xx - yy) * (7 * zz - 1) * sh[..., 22] +
                             C4[7] * xz * (xx - 3 * yy) * sh[..., 23] +
                             C4[8] * (xx * (xx - 3 * yy) - yy * (3 * xx - yy)) * sh[..., 24])
-    return result + 0.5
+    result += 0.5
+    return torch.maximum(result, torch.zeros_like(result))
 
 
 

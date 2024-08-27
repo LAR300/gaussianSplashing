@@ -18,7 +18,7 @@ from uw_formation.depthmap import depth_estimation
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
                  image_name, uid,
-                 trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda", underwater_processing="OFF", mask=None
+                 trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda", underwater_processing="OFF", removal_using_monocular_depth=False, mask=None
                  ):
         super(Camera, self).__init__()
 
@@ -47,7 +47,8 @@ class Camera(nn.Module):
         else:
             self.original_image *= torch.ones((1, self.image_height, self.image_width), device=self.data_device)
         
-        if underwater_processing.startswith("HYBMONODEPTH"): #removal_using_monodepth
+        self.image_depth_monocular = None
+        if underwater_processing.startswith("HYB") and removal_using_monocular_depth: #removal_using_monodepth
                 self.image_depth_monocular = depth_estimation(self.original_image.cpu().numpy())
                 self.image_depth_monocular =  torch.Tensor(self.image_depth_monocular).to('cuda').requires_grad_(False)
 

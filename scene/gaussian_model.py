@@ -409,20 +409,53 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
 
     # start addition uw
-    def enforce_constraints_hyb(self, direct_range=(0.1,1), binf_range=(0.1,0.8), bs_range=(0.1,1)):
-        self._direct.data.clamp_(direct_range[0], direct_range[1]) 
-        self._binf.data.clamp_(binf_range[0], binf_range[1])
-        self._bs.data.clamp_(bs_range[0], bs_range[1])
+    def enforce_constraints_hyb(self, direct_range=(0.1,1), binf_range=(0.1,0.8), bs_range=(0.1,1), uw_additions=None):
+        # self._direct.data.clamp_(direct_range[0], direct_range[1]) 
+        # self._binf.data.clamp_(binf_range[0], binf_range[1])
+        # self._bs.data.clamp_(bs_range[0], bs_range[1]) 
+        clamped = {}
+        clamped['binf'] = torch.clamp(uw_additions['binf'], min=binf_range[0], max=binf_range[1])
+        clamped['bs'] = torch.clamp(uw_additions['bs'], min=bs_range[0], max=bs_range[1])
+        clamped['direct'] = torch.clamp(uw_additions['direct'], min=direct_range[0], max=direct_range[1])
+        if torch.any(clamped['binf'] != uw_additions['binf']):
+            adjustment_factor = torch.min(clamped['binf'] / ( uw_additions['binf'] + 1e-1))
+            self._featuresbinf_dc.data = self._featuresbinf_dc.data * adjustment_factor
+            self._featuresbinf_rest.data = self._featuresbinf_rest.data * adjustment_factor
+        if torch.any(clamped['bs'] != uw_additions['bs']):
+            adjustment_factor = torch.min(clamped['bs'] / ( uw_additions['bs'] + 1e-1))
+            self._featuresbs_dc.data = self._featuresbs_dc.data * adjustment_factor
+            self._featuresbs_rest.data = self._featuresbs_rest.data * adjustment_factor
+        if torch.any(clamped['direct'] != uw_additions['direct']):
+            adjustment_factor = torch.min(clamped['direct'] / ( uw_additions['direct'] + 1e-1))
+            self._featuresdirect_dc.data = self._featuresdirect_dc.data * adjustment_factor
+            self._featuresdirect_rest.data = self._featuresdirect_rest.data * adjustment_factor
         
     
     def reset_hyb(self):
-        direct_new = torch.min(self.get_direct, torch.ones_like(self.get_direct)*0.01)
-        optimizable_tensors = self.replace_tensor_to_optimizer(direct_new, "direct")
-        bs_new = torch.min(self.get_bs, torch.ones_like(self.get_bs)*0.01)
-        optimizable_tensors = self.replace_tensor_to_optimizer(bs_new, "bs")
+        featuresuw = torch.zeros((1, 3, (self.max_sh_degree + 1) ** 2)).float().cuda() # (1,3,16)
+        fbinf_dc_new = featuresuw[:,:,0:1].transpose(1, 2).contiguous()
+        optimizable_tensors = self.replace_tensor_to_optimizer(fbinf_dc_new, "fbinf_dc")
+        self._featuresbinf_dc= optimizable_tensors["fbinf_dc"]
         
-        self._direct = optimizable_tensors["direct"]
-        self._bs = optimizable_tensors["bs"]
+        fbinf_rest_new = featuresuw[:,:,1:].transpose(1, 2).contiguous()
+        optimizable_tensors = self.replace_tensor_to_optimizer(fbinf_rest_new, "fbinf_rest")
+        self._featuresbinf_rest= optimizable_tensors["fbinf_rest"]
+        
+        fbs_dc_new = featuresuw[:,:,0:1].transpose(1, 2).contiguous()
+        optimizable_tensors = self.replace_tensor_to_optimizer(fbs_dc_new, "fbs_dc")
+        self._featuresbs_dc= optimizable_tensors["fbs_dc"]
+        
+        fbs_rest_new = featuresuw[:,:,1:].transpose(1, 2).contiguous()
+        optimizable_tensors = self.replace_tensor_to_optimizer(fbs_rest_new, "fbs_rest")
+        self._featuresbs_rest= optimizable_tensors["fbs_rest"]
+        
+        fdirect_dc_new = featuresuw[:,:,0:1].transpose(1, 2).contiguous()
+        optimizable_tensors = self.replace_tensor_to_optimizer(fdirect_dc_new, "fdirect_dc")
+        self._featuresdirect_dc= optimizable_tensors["fdirect_dc"]
+        
+        fdirect_rest_new = featuresuw[:,:,1:].transpose(1, 2).contiguous()
+        optimizable_tensors = self.replace_tensor_to_optimizer(fdirect_rest_new, "fdirect_rest")
+        self._featuresdirect_rest= optimizable_tensors["fdirect_rest"]
     # end addition uw
     def load_ply(self, path):
         plydata = PlyData.read(path)

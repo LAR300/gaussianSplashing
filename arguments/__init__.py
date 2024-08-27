@@ -105,6 +105,7 @@ class ModelParams(ParamGroup):
         self.initialization_points_option = "pointcloud" # "cluster", "pointcloud", "random"
         self._resolution = -1
         self.underwater_processing = "OFF" # "OFF", "HYB"
+        self.removal_using_monocular_depth = False
         self._white_background = False
         self.data_device = "cuda"
         self.densification = "OFF" # "OFF", "MCMC"
@@ -127,15 +128,13 @@ class PipelineParams(ParamGroup):
 class UnderwaterParams(ParamGroup):
     def __init__(self, parser):
         
-        self.remove_bs_from_images = False
-        self.removal_using_monocular_depth = False
-        self.bs_removal_every = 5000 
         
-        self.exp_range_dl = 0.02
+        self.remove_bs_every = 500
+        self.exp_range_dl = 0.001
         self.exp_range_dh = 1.0
-        self.exp_range_bl = 0.15
+        self.exp_range_bl = 0.001
         self.exp_range_bh = 1#0.35
-        self.binf_range_l = 0.05 # 0.05
+        self.binf_range_l = 0.001 # 0.05
         self.binf_range_h = 1#0.35
         super().__init__(parser, "Underwater Parameters")
         
@@ -168,8 +167,8 @@ class OptimizationParams(ParamGroup):
         self.remove_min_opacity_threshold  = 0.1
         self.random_background = False
         self.noise_lr = 5e5
-        self.scale_reg = 0.01
-        self.opacity_reg = 0.01
+        self.scale_reg = 0.00
+        self.opacity_reg = 0.00
         super().__init__(parser, "Optimization Parameters")
 
 class WandbParams(ParamGroup):

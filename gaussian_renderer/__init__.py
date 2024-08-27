@@ -16,7 +16,7 @@ from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor,  uw_flag="OFF", im_test_flag=False, scaling_modifier = 1.0, override_color = None):
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor,  uw_flag="OFF", scaling_modifier = 1.0, override_color = None, im_test_flag=False):
     """
     Render the scene. 
     
@@ -97,6 +97,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     if uw_flag.startswith("HYB"):
         # start addition uw
         pre_depth = None
+        if viewpoint_camera.image_depth_monocular is not None and not im_test_flag:
+            pre_depth = viewpoint_camera.image_depth_monocular
         rendered_image, radii, rendered_depth, rendered_J, rendered_backscattering = rasterizer(
             means3D = means3D,
             means2D = means2D,
