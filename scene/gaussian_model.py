@@ -410,44 +410,44 @@ class GaussianModel:
 
     # start addition uw
     def enforce_constraints_hyb(self, direct_range=(0.1,1), binf_range=(0.1,0.8), bs_range=(0.1,1), uw_additions=None):
+        self._binf.data.clamp_(binf_range[0], binf_range[1])
+        self._bs.data.clamp_(bs_range[0], bs_range[1]) 
         # self._direct.data.clamp_(direct_range[0], direct_range[1]) 
-        # self._binf.data.clamp_(binf_range[0], binf_range[1])
-        # self._bs.data.clamp_(bs_range[0], bs_range[1]) 
-        clamped = {}
-        clamped['binf'] = torch.clamp(uw_additions['binf'], min=binf_range[0], max=binf_range[1])
-        clamped['bs'] = torch.clamp(uw_additions['bs'], min=bs_range[0], max=bs_range[1])
-        clamped['direct'] = torch.clamp(uw_additions['direct'], min=direct_range[0], max=direct_range[1])
-        if torch.any(clamped['binf'] != uw_additions['binf']):
-            adjustment_factor = torch.min(clamped['binf'] / ( uw_additions['binf'] + 1e-1))
-            self._featuresbinf_dc.data = self._featuresbinf_dc.data * adjustment_factor
-            self._featuresbinf_rest.data = self._featuresbinf_rest.data * adjustment_factor
-        if torch.any(clamped['bs'] != uw_additions['bs']):
-            adjustment_factor = torch.min(clamped['bs'] / ( uw_additions['bs'] + 1e-1))
-            self._featuresbs_dc.data = self._featuresbs_dc.data * adjustment_factor
-            self._featuresbs_rest.data = self._featuresbs_rest.data * adjustment_factor
-        if torch.any(clamped['direct'] != uw_additions['direct']):
-            adjustment_factor = torch.min(clamped['direct'] / ( uw_additions['direct'] + 1e-1))
-            self._featuresdirect_dc.data = self._featuresdirect_dc.data * adjustment_factor
-            self._featuresdirect_rest.data = self._featuresdirect_rest.data * adjustment_factor
+        # clamped = {}
+        # clamped['binf'] = torch.clamp(uw_additions['binf'], min=binf_range[0], max=binf_range[1])
+        # clamped['bs'] = torch.clamp(uw_additions['bs'], min=bs_range[0], max=bs_range[1])
+        # clamped['direct'] = torch.clamp(uw_additions['direct'], min=direct_range[0], max=direct_range[1])
+        # if torch.any(clamped['binf'] != uw_additions['binf']):
+        #     adjustment_factor = torch.min(clamped['binf'] / ( uw_additions['binf'] + 1e-1))
+        #     self._featuresbinf_dc.data = self._featuresbinf_dc.data * adjustment_factor
+        #     self._featuresbinf_rest.data = self._featuresbinf_rest.data * adjustment_factor
+        # if torch.any(clamped['bs'] != uw_additions['bs']):
+        #     adjustment_factor = torch.min(clamped['bs'] / ( uw_additions['bs'] + 1e-1))
+        #     self._featuresbs_dc.data = self._featuresbs_dc.data * adjustment_factor
+        #     self._featuresbs_rest.data = self._featuresbs_rest.data * adjustment_factor
+        # if torch.any(clamped['direct'] != uw_additions['direct']):
+        #     adjustment_factor = torch.min(clamped['direct'] / ( uw_additions['direct'] + 1e-1))
+        #     self._featuresdirect_dc.data = self._featuresdirect_dc.data * adjustment_factor
+        #     self._featuresdirect_rest.data = self._featuresdirect_rest.data * adjustment_factor
         
     
     def reset_hyb(self):
         featuresuw = torch.zeros((1, 3, (self.max_sh_degree + 1) ** 2)).float().cuda() # (1,3,16)
-        fbinf_dc_new = featuresuw[:,:,0:1].transpose(1, 2).contiguous()
-        optimizable_tensors = self.replace_tensor_to_optimizer(fbinf_dc_new, "fbinf_dc")
-        self._featuresbinf_dc= optimizable_tensors["fbinf_dc"]
+        # fbinf_dc_new = featuresuw[:,:,0:1].transpose(1, 2).contiguous()
+        # optimizable_tensors = self.replace_tensor_to_optimizer(fbinf_dc_new, "fbinf_dc")
+        # self._featuresbinf_dc= optimizable_tensors["fbinf_dc"]
         
-        fbinf_rest_new = featuresuw[:,:,1:].transpose(1, 2).contiguous()
-        optimizable_tensors = self.replace_tensor_to_optimizer(fbinf_rest_new, "fbinf_rest")
-        self._featuresbinf_rest= optimizable_tensors["fbinf_rest"]
+        # fbinf_rest_new = featuresuw[:,:,1:].transpose(1, 2).contiguous()
+        # optimizable_tensors = self.replace_tensor_to_optimizer(fbinf_rest_new, "fbinf_rest")
+        # self._featuresbinf_rest= optimizable_tensors["fbinf_rest"]
         
-        fbs_dc_new = featuresuw[:,:,0:1].transpose(1, 2).contiguous()
-        optimizable_tensors = self.replace_tensor_to_optimizer(fbs_dc_new, "fbs_dc")
-        self._featuresbs_dc= optimizable_tensors["fbs_dc"]
+        # fbs_dc_new = featuresuw[:,:,0:1].transpose(1, 2).contiguous()
+        # optimizable_tensors = self.replace_tensor_to_optimizer(fbs_dc_new, "fbs_dc")
+        # self._featuresbs_dc= optimizable_tensors["fbs_dc"]
         
-        fbs_rest_new = featuresuw[:,:,1:].transpose(1, 2).contiguous()
-        optimizable_tensors = self.replace_tensor_to_optimizer(fbs_rest_new, "fbs_rest")
-        self._featuresbs_rest= optimizable_tensors["fbs_rest"]
+        # fbs_rest_new = featuresuw[:,:,1:].transpose(1, 2).contiguous()
+        # optimizable_tensors = self.replace_tensor_to_optimizer(fbs_rest_new, "fbs_rest")
+        # self._featuresbs_rest= optimizable_tensors["fbs_rest"]
         
         fdirect_dc_new = featuresuw[:,:,0:1].transpose(1, 2).contiguous()
         optimizable_tensors = self.replace_tensor_to_optimizer(fdirect_dc_new, "fdirect_dc")
@@ -563,7 +563,11 @@ class GaussianModel:
 
         self.denom = self.denom[valid_points_mask]
         self.max_radii2D = self.max_radii2D[valid_points_mask]
-
+    
+    def prune_nan(self):
+        selected_pts_mask = torch.isnan(self.get_opacity).any(dim=1)
+        self.prune_points(selected_pts_mask)
+        
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
@@ -717,7 +721,7 @@ class GaussianModel:
     def densify_and_prune_by_size(self, min_opacity, max_screen_size=False):
         prune_mask = (self.get_opacity < min_opacity).squeeze()
         if max_screen_size:
-            big_points_vs = self.max_radii2D > np.percentile(self.max_radii2D.detach().cpu().numpy(), 99.9)
+            big_points_vs = self.max_radii2D > np.percentile(self.max_radii2D.detach().cpu().numpy(), 99.5)
             #big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             big_points_ws = self.get_scaling.max(dim=1).values > np.percentile(self.get_scaling.max(dim=1).values.detach().cpu().numpy(), 99.9)
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)

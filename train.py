@@ -136,8 +136,8 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             image, depth_map, rendered_J, rendered_backscattering, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_J"], render_pkg["rendered_backscattering"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
             
             #uw_additions["direct"], uw_additions["binf"], uw_additions["bs"] = render_pkg["direct"], render_pkg["binf"], render_pkg["bs"]
-            uw_additions["binf"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbinf.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
-            uw_additions["bs"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
+            uw_additions["binf"] =  gaussians._binf #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbinf.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
+            uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
             uw_additions["direct"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
         else:
             render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
@@ -149,9 +149,9 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         gt_image = viewpoint_cam.original_image.cuda()
         # Loss
         loss, Ll1, Ll2, Psnr = loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict, uw_additions=uw_additions, uw=uw)
-        # if dataset.underwater_processing.startswith("HYB"):
-        #     gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_dl, uw.exp_range_dh), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_bl, uw.exp_range_bh),
-        #                                         uw_additions=uw_additions)
+        if dataset.underwater_processing.startswith("HYB"):
+            gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_dl, uw.exp_range_dh), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_bl, uw.exp_range_bh),
+                                                uw_additions=uw_additions)
         loss.backward()
 
         iter_end.record()
@@ -166,7 +166,6 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 progress_bar.close()
 
             # Log and save
-            im_test_flag = True
             training_rep_uw =  dataset.underwater_processing 
             if cfg_dot_dic.GeneralParameters.save_for_metrics and iteration == opt.iterations:
                 
@@ -213,7 +212,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             
             training_report(iteration, Ll1, loss, l1_loss,
                             Ll2, l2_loss, Psnr,
-                            iter_start.elapsed_time(iter_end), cfg_dot_dic.GeneralParameters.test_iterations, scene, render, [pipe, bg, training_rep_uw, im_test_flag],
+                            iter_start.elapsed_time(iter_end), cfg_dot_dic.GeneralParameters.test_iterations, scene, render, [pipe, bg, training_rep_uw],
                             (dataset.underwater_processing, uw, uw_additions, dataset.removal_using_monocular_depth), curr_bs_dict)
             if (iteration in cfg_dot_dic.GeneralParameters.save_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
@@ -221,20 +220,21 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 #scene.save(iteration)
         
             # Densification
+            if iteration % opt.opacity_reset_interval == 0:# or (dataset.white_background and iteration == opt.densify_from_iter):
+                            gaussians.reset_opacity()
+                            if dataset.underwater_processing.startswith("HYB"):
+                                gaussians.reset_hyb()
             if dataset.densification == "OFF":
                 if iteration < opt.densify_until_iter:
                     # Keep track of max radii in image-space for pruning
                     gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
                     gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
-
+                    
+                    
                     if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                        #gaussians.densify_and_prune_by_size(opt.remove_min_opacity_threshold, max_screen_size=True)
+                        #gaussians.densify_and_prune_by_size(opt.remove_min_opacity_threshold, max_screen_size=False)
                         gaussians.densify_and_prune(opt.densify_grad_threshold, scene.cameras_extent)
-
-                    if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
-                        gaussians.reset_opacity()
-                        if dataset.underwater_processing.startswith("HYB"):
-                            gaussians.reset_hyb()
+                        gaussians.prune_nan()
                         
             elif dataset.densification == "MCMC":
                 if iteration < opt.densify_until_iter and iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
@@ -242,7 +242,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     gaussians.relocate_gs(dead_mask=dead_mask)
                     gaussians.add_new_gs(cap_max=args.cap_max)
                 
-            if opt.masking_interval!= -1 and (iteration % opt.masking_interval) == 0:
+            if opt.masking_interval != -1 and (iteration % opt.masking_interval) == 0:
                 gaussians.prune_by_maskingBG(scene.getTrainCameras())
                 
             
@@ -315,17 +315,15 @@ def training_report(iteration, Ll1, loss, l1_loss,
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(0, 30, 4)]})
 
         for config in validation_configs:
-            renderArgs[-1] = True if config['name'] == "test" else False # im_test_flag = True if config['name'] == "test" else False
-            renderArgs[-1] = False
+            
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
                 l2_test = 0.0
                 psnr_test = 0.0
                 
+                im_test_flag = True if config['name'] == "test" else False # im_test_flag = True if config['name'] == "test" else False
                 for idx, viewpoint in enumerate(config['cameras']):
-                    render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs)
-                    
-                    
+                    render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs, im_test_flag=im_test_flag)
                     image = torch.clamp(render_pkg["render"], 0.0, 1.0)
                     gt_image = torch.clip(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     if uw_tuple[0].startswith("HYB"):

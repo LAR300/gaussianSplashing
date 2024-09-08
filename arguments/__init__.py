@@ -150,7 +150,7 @@ class OptimizationParams(ParamGroup):
         self.scaling_lr = 0.005
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
-        self.lambda_dssim = 0.4
+        self.lambda_dssim = 0.3
         self.lambda_bsest = 0.0
         
         self.normal_lr = 0.0002
@@ -189,7 +189,7 @@ def add_general_params(parser):
     group_general_args.add_argument('--port', type=int, default=-1)
     group_general_args.add_argument('--debug_from', type=int, default=-1)
     group_general_args.add_argument('--detect_anomaly', action='store_true', default=False)
-    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 1500, 2250, 3000, 4500, 7000, 10_000, 20_000 , 30_000, 50_000]) # default=[7_000, 30_000]
+    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 1500, 2000, 2500, 3000, 3500, 4500, 7000, 10_000, 20_000 , 30_000, 50_000]) # default=[7_000, 30_000]
     group_general_args.add_argument("--save_iterations", nargs="+", type=int, default=[75_000])
     group_general_args.add_argument("--quiet", action="store_true")
     group_general_args.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])

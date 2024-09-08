@@ -30,7 +30,7 @@ def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_p
         if opt.lambda_bsest > 0:
             # binf = render_pkg["binf"]
             # bs = render_pkg["bs"]
-            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gt=gt_image, image_depth=depth_map, binf=uw_additions["binf"], bs=uw_additions["bs"], bs_dict=bs_dict, uw=uw)
+            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gaussians=gaussians, gt=gt_image, image_depth=depth_map, binf=uw_additions["binf"], bs=uw_additions["bs"], bs_dict=bs_dict, uw=uw)
             loss = loss + opt.opacity_reg * torch.abs(gaussians.get_opacity).mean()
             loss = loss + opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
             
@@ -43,9 +43,9 @@ def l1_loss(network_output, gt):
 def l2_loss(network_output, gt):
     return ((network_output - gt) ** 2).mean()
 
-def bs_loss(iteration, gt, image_depth, binf, bs, bs_dict=None, uw=None):
+def bs_loss(iteration, gaussians, gt, image_depth, binf, bs, bs_dict=None, uw=None):
     curr_bs_dict = bs_dict
-    if iteration > uw.remove_bs_every*5  and iteration % uw.remove_bs_every == 0:
+    if iteration > uw.remove_bs_every*2  and iteration % uw.remove_bs_every == 0:
         try:
             _, _, curr_bs_dict = preform_full_bs_removal(gt.cpu().numpy(), bs_dict=None, image_depth=image_depth.detach().cpu().numpy().squeeze(axis=0), return_depth=False)
         except:
@@ -57,7 +57,10 @@ def bs_loss(iteration, gt, image_depth, binf, bs, bs_dict=None, uw=None):
         bs_dict = curr_bs_dict
     b_inf_gt = torch.Tensor(bs_dict['Bc_inf']).to(binf.device)
     bs_gt = torch.Tensor(bs_dict['betac_b']).to(bs.device)  
-    return 0.6 * torch.mean((binf - b_inf_gt) ** 2) + 0.4 * torch.mean((bs - bs_gt) ** 2)
+    gaussians._binf = b_inf_gt
+    gaussians._bs = bs_gt
+    return 0.0
+    #return 0.5 * torch.mean((gaussians._binf - b_inf_gt) ** 2) + 0.5 * torch.mean((gaussians._bs - bs_gt) ** 2)
 
 
 def gaussian(window_size, sigma):
