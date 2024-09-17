@@ -132,13 +132,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         bg = torch.rand((3), device="cuda") if opt.random_background else background # [0,0,0] most of the times
         if dataset.underwater_processing.startswith("HYB"):
             render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
-                
             image, depth_map, rendered_J, rendered_backscattering, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_J"], render_pkg["rendered_backscattering"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-            
-            #uw_additions["direct"], uw_additions["binf"], uw_additions["bs"] = render_pkg["direct"], render_pkg["binf"], render_pkg["bs"]
-            uw_additions["binf"] =  gaussians._binf #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbinf.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
-            uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
-            uw_additions["direct"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
         else:
             render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
             image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
@@ -148,10 +142,18 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         # Underwater backscatter removal
         gt_image = viewpoint_cam.original_image.cuda()
         # Loss
+        if dataset.underwater_processing.startswith("HYB"):
+            uw_additions["binf"] =  gaussians._binf #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbinf.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
+            uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
+            uw_additions["direct"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
         loss, Ll1, Ll2, Psnr = loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict, uw_additions=uw_additions, uw=uw)
         if dataset.underwater_processing.startswith("HYB"):
             gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_dl, uw.exp_range_dh), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_bl, uw.exp_range_bh),
                                                 uw_additions=uw_additions)
+            #uw_additions["direct"], uw_additions["binf"], uw_additions["bs"] = render_pkg["direct"], render_pkg["binf"], render_pkg["bs"]
+            uw_additions["binf"] =  gaussians._binf #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbinf.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
+            uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
+            uw_additions["direct"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
         loss.backward()
 
         iter_end.record()
@@ -222,8 +224,8 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             # Densification
             if iteration % opt.opacity_reset_interval == 0:# or (dataset.white_background and iteration == opt.densify_from_iter):
                             gaussians.reset_opacity()
-                            if dataset.underwater_processing.startswith("HYB"):
-                                gaussians.reset_hyb()
+                            # if dataset.underwater_processing.startswith("HYB") and uw_additions["direct"].any() > 0.6:
+                            #     gaussians.reset_hyb()
             if dataset.densification == "OFF":
                 if iteration < opt.densify_until_iter:
                     # Keep track of max radii in image-space for pruning

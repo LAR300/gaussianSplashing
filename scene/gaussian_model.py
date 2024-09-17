@@ -664,12 +664,10 @@ class GaussianModel:
         padded_grad = torch.zeros((n_init_points), device="cuda")
         padded_grad[:grads.shape[0]] = grads.squeeze()
         selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
-        
-
-        
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
-
+        
+        selected_pts_mask = torch.where(torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent, True, False)
         stds = self.get_scaling[selected_pts_mask].repeat(N,1)
         means =torch.zeros((stds.size(0), 3),device="cuda")
         samples = torch.normal(mean=means, std=stds)
@@ -696,6 +694,7 @@ class GaussianModel:
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
         
+        
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
         new_features_rest = self._features_rest[selected_pts_mask]
@@ -714,17 +713,15 @@ class GaussianModel:
         grads[grads.isnan()] = 0.0
 
         self.densify_and_clone(grads, max_grad, extent)
+        self.densify_prune_by_size()
         self.densify_and_split(grads, max_grad, extent)
-
         torch.cuda.empty_cache()
     
-    def densify_and_prune_by_size(self, min_opacity, max_screen_size=False):
-        prune_mask = (self.get_opacity < min_opacity).squeeze()
-        if max_screen_size:
-            big_points_vs = self.max_radii2D > np.percentile(self.max_radii2D.detach().cpu().numpy(), 99.5)
-            #big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
-            big_points_ws = self.get_scaling.max(dim=1).values > np.percentile(self.get_scaling.max(dim=1).values.detach().cpu().numpy(), 99.9)
-            prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
+    def densify_prune_by_size(self):
+        big_points_vs = self.max_radii2D > np.percentile(self.max_radii2D.detach().cpu().numpy(), 99.8)
+        #big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+        big_points_ws = self.get_scaling.max(dim=1).values > np.percentile(self.get_scaling.max(dim=1).values.detach().cpu().numpy(), 99.9)
+        prune_mask = torch.logical_or(big_points_vs, big_points_ws)
         self.prune_points(prune_mask)
 
         torch.cuda.empty_cache()
@@ -754,7 +751,9 @@ class GaussianModel:
         for group in self.optimizer.param_groups:
             assert len(group["params"]) == 1
             if group["name"] == "binf" or group["name"] == "direct" or group["name"] == "bs"\
-                 or group["name"] == "fbinf_dc" or group["name"] == "fbinf_rest": # binf is a general parameter
+                or group["name"] == "fbinf_dc" or group["name"] == "fbinf_rest" \
+                or group["name"] == "fbs_dc" or group["name"] == "fbs_rest" \
+                or group["name"] == "fdirect_dc" or group["name"] == "fdirect_rest":    # binf is a general parameter
                 continue
             tensor = tensors_dict[group["name"]]
             stored_state = self.optimizer.state.get(group['params'][0], None)
@@ -837,7 +836,7 @@ class GaussianModel:
 
     def add_new_gs(self, cap_max):
         current_num_points = self._opacity.shape[0]
-        target_num = min(cap_max, int(1.05 * current_num_points))
+        target_num = min(cap_max, int(1.08 * current_num_points))#1.05
         num_gs = max(0, target_num - current_num_points)
 
         if num_gs <= 0:

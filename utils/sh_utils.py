@@ -110,7 +110,7 @@ def eval_sh(deg, sh, dirs):
                             C4[6] * (xx - yy) * (7 * zz - 1) * sh[..., 22] +
                             C4[7] * xz * (xx - 3 * yy) * sh[..., 23] +
                             C4[8] * (xx * (xx - 3 * yy) - yy * (3 * xx - yy)) * sh[..., 24])
-    result += 0.5
+    #result += 0.5
     return torch.maximum(result, torch.zeros_like(result))
 
 

@@ -23,7 +23,7 @@ def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_p
     Ll1 = l1_loss(image, gt_image)
     Ll2 = l2_loss(image, gt_image).detach()
     Psnr = psnr(image, gt_image).mean().double().detach()
-    loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+    loss = (1.0 - opt.lambda_dssim) * Ll2 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
     #loss = 0.6 * Ll1 + 0.4 * (1.0 - ssim(image, gt_image))
     if uw_flag.startswith("HYB"): 
         depth_map = render_pkg["rendered_depth"]
@@ -33,7 +33,8 @@ def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_p
             loss += opt.lambda_bsest * bs_loss(iteration=iteration, gaussians=gaussians, gt=gt_image, image_depth=depth_map, binf=uw_additions["binf"], bs=uw_additions["bs"], bs_dict=bs_dict, uw=uw)
             loss = loss + opt.opacity_reg * torch.abs(gaussians.get_opacity).mean()
             loss = loss + opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
-            
+            # direct color loss
+            loss = loss + opt.lambda_bsest *  (F.relu(uw_additions["direct"][0][1]-uw_additions["direct"][0][0]) + F.relu(uw_additions["direct"][0][2]-uw_additions["direct"][0][0]) + F.relu(0.6-uw_additions["direct"][0][0])  )
         
     return loss, Ll1, Ll2, Psnr
 
@@ -57,10 +58,10 @@ def bs_loss(iteration, gaussians, gt, image_depth, binf, bs, bs_dict=None, uw=No
         bs_dict = curr_bs_dict
     b_inf_gt = torch.Tensor(bs_dict['Bc_inf']).to(binf.device)
     bs_gt = torch.Tensor(bs_dict['betac_b']).to(bs.device)  
-    gaussians._binf = b_inf_gt
-    gaussians._bs = bs_gt
-    return 0.0
-    #return 0.5 * torch.mean((gaussians._binf - b_inf_gt) ** 2) + 0.5 * torch.mean((gaussians._bs - bs_gt) ** 2)
+    # gaussians._binf = b_inf_gt
+    # gaussians._bs = bs_gt
+    # return 0.0
+    return 0.5 * torch.mean((gaussians._binf - b_inf_gt) ** 2) + 0.5 * torch.mean((gaussians._bs - bs_gt) ** 2)
 
 
 def gaussian(window_size, sigma):
