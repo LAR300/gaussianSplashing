@@ -18,23 +18,25 @@ from math import exp
 from utils.image_utils import erode, psnr
 from uw_formation.backscatter import preform_full_bs_removal
 
-def loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=None, render_pkg=None, bs_dict=None, uw_additions=None, uw=None):
+def loss_func(iteration, gt_image, opt, gaussians, uw_flag=None, render_pkg=None, bs_dict=None, bs_image=None, uw_additions=None, uw=None):
     # Loss
-    Ll1 = l1_loss(image, gt_image)
-    Ll2 = l2_loss(image, gt_image).detach()
-    Psnr = psnr(image, gt_image).mean().double().detach()
-    loss = (1.0 - opt.lambda_dssim) * Ll2 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+    Ll1 = l1_loss( render_pkg["render"], gt_image)
+    Ll2 = l2_loss( render_pkg["render"], gt_image).detach()
+    Psnr = psnr( render_pkg["render"], gt_image).mean().double().detach()
+    loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim( render_pkg["render"], gt_image))
     #loss = 0.6 * Ll1 + 0.4 * (1.0 - ssim(image, gt_image))
     if uw_flag.startswith("HYB"): 
         depth_map = render_pkg["rendered_depth"]
         if opt.lambda_bsest > 0:
             # binf = render_pkg["binf"]
             # bs = render_pkg["bs"]
-            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gaussians=gaussians, gt=gt_image, image_depth=depth_map, binf=uw_additions["binf"], bs=uw_additions["bs"], bs_dict=bs_dict, uw=uw)
+            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gaussians=gaussians, gt=gt_image, image_depth=depth_map, binf=uw_additions["binf"], bs=uw_additions["bs"], bs_dict=bs_dict, bs_image=bs_image, uw=uw, render_pkg=render_pkg)
             loss = loss + opt.opacity_reg * torch.abs(gaussians.get_opacity).mean()
             loss = loss + opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
+            #loss = loss + opt.lambda_bsest *  total_variation_loss(image=render_pkg["render"])
             # direct color loss
-            loss = loss + opt.lambda_bsest *  (F.relu(uw_additions["direct"][0][1]-uw_additions["direct"][0][0]) + F.relu(uw_additions["direct"][0][2]-uw_additions["direct"][0][0]) + F.relu(0.6-uw_additions["direct"][0][0])  )
+            loss = loss + opt.lambda_bsest *  (F.relu(-1*(uw_additions["binf"][0][1]-uw_additions["binf"][0][0])) + F.relu(-1*(uw_additions["binf"][0][2]-uw_additions["binf"][0][0])))
+            loss = loss + opt.lambda_bsest *  (F.relu(+1*(uw_additions["direct"][0][1]-uw_additions["direct"][0][0])) + F.relu(+1*(uw_additions["direct"][0][2]-uw_additions["direct"][0][0])))
         
     return loss, Ll1, Ll2, Psnr
 
@@ -44,11 +46,37 @@ def l1_loss(network_output, gt):
 def l2_loss(network_output, gt):
     return ((network_output - gt) ** 2).mean()
 
-def bs_loss(iteration, gaussians, gt, image_depth, binf, bs, bs_dict=None, uw=None):
+def total_variation_loss(image):
+    """
+    Computes the Total Variation Loss for an input image.
+    
+    Args:
+    - image (torch.Tensor): The input image tensor of shape (C, H, W),
+                            where B is batch size, C is number of channels,
+                            H is height, and W is width.
+                            
+    Returns:
+    - torch.Tensor: The total variation loss for the image.
+    """
+    
+    # Calculate the difference between neighboring pixels (horizontal and vertical)
+    # Shifted images to compute differences between adjacent pixels
+    diff_h = torch.abs(image[:, 1:, :] - image[:, :-1, :])  # Vertical differences
+    diff_w = torch.abs(image[:, :, 1:] - image[:, :, :-1])  # Horizontal differences
+    
+    # Sum the differences
+    loss = torch.sum(diff_h) + torch.sum(diff_w)
+    
+    return loss
+
+def bs_loss(iteration, gaussians, gt, image_depth, binf, bs, bs_dict=None, bs_image=None, uw=None, render_pkg=None):
     curr_bs_dict = bs_dict
     if iteration > uw.remove_bs_every*2  and iteration % uw.remove_bs_every == 0:
         try:
-            _, _, curr_bs_dict = preform_full_bs_removal(gt.cpu().numpy(), bs_dict=None, image_depth=image_depth.detach().cpu().numpy().squeeze(axis=0), return_depth=False)
+            arr = image_depth.detach().cpu().numpy().squeeze(axis=0)
+            arr[arr == 1] = 1.3
+            clean_from_bs, bs_image, curr_bs_dict = preform_full_bs_removal(gt.cpu().numpy(), bs_dict=None, image_depth=arr, return_depth=False)
+            
         except:
             print("Error in BS estimation")
     if curr_bs_dict is None or not bool(curr_bs_dict)\
@@ -61,7 +89,8 @@ def bs_loss(iteration, gaussians, gt, image_depth, binf, bs, bs_dict=None, uw=No
     # gaussians._binf = b_inf_gt
     # gaussians._bs = bs_gt
     # return 0.0
-    return 0.5 * torch.mean((gaussians._binf - b_inf_gt) ** 2) + 0.5 * torch.mean((gaussians._bs - bs_gt) ** 2)
+    return l2_loss(render_pkg["rendered_backscattering"], torch.Tensor(bs_image).to(render_pkg["rendered_backscattering"].device))
+    return 0.5 * torch.mean((gaussians._bs - bs_gt) ** 2) + 0.5 * torch.mean((gaussians._binf - b_inf_gt) ** 2) 
 
 
 def gaussian(window_size, sigma):

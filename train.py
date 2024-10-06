@@ -94,6 +94,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
     first_iter += 1
     # start UW processing
     curr_bs_dict = {}
+    curr_bs_image = None
     uw_additions = {}
     for iteration in range(first_iter, opt.iterations + 1):        
         if cfg_dot_dic.GeneralParameters.ip != "0" and cfg_dot_dic.GeneralParameters.port != -1:
@@ -146,14 +147,14 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             uw_additions["binf"] =  gaussians._binf #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbinf.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
             uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
             uw_additions["direct"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
-        loss, Ll1, Ll2, Psnr = loss_func(iteration, image, gt_image, opt, gaussians, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict, uw_additions=uw_additions, uw=uw)
+        loss, Ll1, Ll2, Psnr = loss_func(iteration, gt_image, opt, gaussians, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict, bs_image=curr_bs_image, uw_additions=uw_additions, uw=uw)
         if dataset.underwater_processing.startswith("HYB"):
             gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_dl, uw.exp_range_dh), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_bl, uw.exp_range_bh),
                                                 uw_additions=uw_additions)
             #uw_additions["direct"], uw_additions["binf"], uw_additions["bs"] = render_pkg["direct"], render_pkg["binf"], render_pkg["bs"]
             uw_additions["binf"] =  gaussians._binf #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbinf.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
             uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
-            uw_additions["direct"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
+            uw_additions["direct"] =  gaussians._direct #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
         loss.backward()
 
         iter_end.record()
@@ -236,6 +237,8 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                         #gaussians.densify_and_prune_by_size(opt.remove_min_opacity_threshold, max_screen_size=False)
                         gaussians.densify_and_prune(opt.densify_grad_threshold, scene.cameras_extent)
+                        if iteration % (3*opt.densification_interval) == 0:
+                            gaussians.densify_and_prune_in_depth(viewpoint_cam)
                         gaussians.prune_nan()
                         
             elif dataset.densification == "MCMC":

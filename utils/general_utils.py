@@ -242,6 +242,29 @@ def transform_points_4x4(points, matrix):
     transformed = points_hom @ matrix#.T , it is already transposed in cameras.py
     return transformed
 
+def transform_points_4x4_torch(points, matrix):
+    """
+    Transform a set of 3D points using a 4x4 transformation matrix.
+
+    Parameters:
+    points (torch.Tensor): The 3D points as a PyTorch tensor with shape (m, 3).
+    matrix (torch.Tensor): The 4x4 transformation matrix as a PyTorch tensor.
+
+    Returns:
+    torch.Tensor: The transformed 4D points as a PyTorch tensor with shape (m, 4).
+    """
+    # Ensure the points tensor has shape (m, 3)
+    num_points = points.shape[0]
+    
+    # Append a column of ones to make the points 4D (homogeneous coordinates)
+    ones = torch.ones((num_points, 1), device=points.device, dtype=points.dtype)
+    points_hom = torch.cat((points, ones), dim=1)
+    
+    # Perform matrix multiplication to transform the points
+    transformed = torch.matmul(points_hom, matrix)  # Using .T for correct matrix shape
+
+    return transformed
+
 def ndc2pix(v, S):
     """
     Convert a normalized device coordinate (NDC) value to pixel coordinates.
@@ -278,14 +301,18 @@ def filter_array_by_mask(mean2d, mask, mean2d_mask):
     # Update mean2d_mask where mask values are 0
     mean2d_mask[valid & (mask[indices_y, indices_x] == 0)] = 1
     #mean2d_mask[valid] = 1
+    
+def process_means3d_using_cam_for_depth_condition(mean3d, view_matrix):
+    transformed_points = transform_points_4x4_torch(mean3d, view_matrix)[:,:3]
+    return transformed_points
 
 def process_mean3d_using_camera_mask(mean3d, viewpoint_stack):
     """
     Process all points to transform them using the projection matrix and convert them to image coordinates.
 
     Parameters:
-    all_points (np.ndarray): Array containing all points with shape (m, 3).
-    projmatrix (np.ndarray): The 4x4 projection matrix.
+    mean3d (np.ndarray): Array containing all points with shape (m, 3).
+    projmatrix (np.ndarray) (inside viewpoint_stack): The 4x4 projection matrix.
     W (int): The width of the image.
     H (int): The height of the image.
 

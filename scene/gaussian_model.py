@@ -11,7 +11,7 @@
 
 import torch
 import numpy as np
-from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation, process_mean3d_using_camera_mask
+from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation, process_mean3d_using_camera_mask, process_means3d_using_cam_for_depth_condition
 from torch import nn
 import os
 from utils.system_utils import mkdir_p
@@ -658,16 +658,17 @@ class GaussianModel:
     
 
 
-    def densify_and_split(self, grads, grad_threshold, scene_extent, N=2): #################V1
-        n_init_points = self.get_xyz.shape[0]
-        # Extract points that satisfy the gradient condition
-        padded_grad = torch.zeros((n_init_points), device="cuda")
-        padded_grad[:grads.shape[0]] = grads.squeeze()
-        selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
-        selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
-        
-        selected_pts_mask = torch.where(torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent, True, False)
+    def densify_and_split(self, grads=None, grad_threshold=None, scene_extent=None, N=2, selected_pts_mask=None): #################V1
+        if selected_pts_mask is None:
+            n_init_points = self.get_xyz.shape[0]
+            # Extract points that satisfy the gradient condition
+            padded_grad = torch.zeros((n_init_points), device="cuda")
+            padded_grad[:grads.shape[0]] = grads.squeeze()
+            selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
+            selected_pts_mask = torch.logical_and(selected_pts_mask,
+                                                torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
+            selected_pts_mask = torch.where(torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent, True, False)
+            
         stds = self.get_scaling[selected_pts_mask].repeat(N,1)
         means =torch.zeros((stds.size(0), 3),device="cuda")
         samples = torch.normal(mean=means, std=stds)
@@ -688,11 +689,12 @@ class GaussianModel:
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
 
-    def densify_and_clone(self, grads, grad_threshold, scene_extent):
+    def densify_and_clone(self, grads=None, grad_threshold=None, scene_extent=None, selected_pts_mask=None):
         # Extract points that satisfy the gradient condition
-        selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
-        selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
+        if selected_pts_mask is None:
+            selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
+            selected_pts_mask = torch.logical_and(selected_pts_mask,
+                                                torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
         
         
         new_xyz = self._xyz[selected_pts_mask]
@@ -711,12 +713,30 @@ class GaussianModel:
     def densify_and_prune(self, max_grad, extent):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
-
+        
         self.densify_and_clone(grads, max_grad, extent)
         self.densify_prune_by_size()
         self.densify_and_split(grads, max_grad, extent)
         torch.cuda.empty_cache()
     
+    def densify_and_prune_in_depth(self, viewpoint_cam):
+        selected_pts_mask = None
+        if viewpoint_cam is not None:
+            world_view_transform = viewpoint_cam.world_view_transform
+            transformed_xyz = process_means3d_using_cam_for_depth_condition(self.get_xyz,world_view_transform)
+            percentile99 = torch.quantile(transformed_xyz[:,2], 0.99)
+            selected_pts_mask = torch.where(transformed_xyz[:,2]>=percentile99, True, False)
+            self.densify_and_clone(selected_pts_mask=selected_pts_mask)
+        if viewpoint_cam is not None:
+            selected_pts_mask_new = torch.cat((selected_pts_mask, torch.zeros(selected_pts_mask.sum(), device="cuda", dtype=bool)))
+            
+            # world_view_transform = viewpoint_cam.world_view_transform
+            # transformed_xyz = process_means3d_using_cam_for_depth_condition(self.get_xyz,world_view_transform)
+            # percentile95 = torch.quantile(transformed_xyz[:,2], 0.95)
+            # percentile98 = torch.quantile(transformed_xyz[:,2], 0.98)
+            # selected_pts_mask = torch.where((transformed_xyz[:,2]>=percentile95) & (transformed_xyz[:,2]<=percentile98), True, False)
+            self.densify_and_split(selected_pts_mask=selected_pts_mask_new)
+            
     def densify_prune_by_size(self):
         big_points_vs = self.max_radii2D > np.percentile(self.max_radii2D.detach().cpu().numpy(), 99.8)
         #big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
