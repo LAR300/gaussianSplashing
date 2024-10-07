@@ -167,8 +167,8 @@ class OptimizationParams(ParamGroup):
         self.remove_min_opacity_threshold  = 0.1
         self.random_background = False
         self.noise_lr = 5e5
-        self.scale_reg = 0.00
-        self.opacity_reg = 0.00
+        self.scale_reg = 0.02
+        self.opacity_reg = 0.02
         super().__init__(parser, "Optimization Parameters")
 
 class WandbParams(ParamGroup):
@@ -189,7 +189,7 @@ def add_general_params(parser):
     group_general_args.add_argument('--port', type=int, default=-1)
     group_general_args.add_argument('--debug_from', type=int, default=-1)
     group_general_args.add_argument('--detect_anomaly', action='store_true', default=False)
-    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 1500, 2000, 2500, 3000, 3500, 4500, 7000, 10_000, 20_000 , 30_000, 50_000]) # default=[7_000, 30_000]
+    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 1500, 2000, 2500, 3000, 3500, 4500,6000, 7000, 10_000, 20_000 , 30_000, 50_000]) # default=[7_000, 30_000]
     group_general_args.add_argument("--save_iterations", nargs="+", type=int, default=[75_000])
     group_general_args.add_argument("--quiet", action="store_true")
     group_general_args.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])

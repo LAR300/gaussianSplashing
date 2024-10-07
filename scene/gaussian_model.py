@@ -710,37 +710,35 @@ class GaussianModel:
             self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation) # without uw addition
         
 
-    def densify_and_prune(self, max_grad, extent):
+    def densify_and_prune(self, max_grad, extent, iteration=0):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
         
         self.densify_and_clone(grads, max_grad, extent)
-        self.densify_prune_by_size()
         self.densify_and_split(grads, max_grad, extent)
         torch.cuda.empty_cache()
     
-    def densify_and_prune_in_depth(self, viewpoint_cam):
+    def densify_and_prune_in_depth(self, viewpoint_cam, act="clone"):
         selected_pts_mask = None
         if viewpoint_cam is not None:
             world_view_transform = viewpoint_cam.world_view_transform
             transformed_xyz = process_means3d_using_cam_for_depth_condition(self.get_xyz,world_view_transform)
-            percentile99 = torch.quantile(transformed_xyz[:,2], 0.99)
-            selected_pts_mask = torch.where(transformed_xyz[:,2]>=percentile99, True, False)
-            self.densify_and_clone(selected_pts_mask=selected_pts_mask)
-        if viewpoint_cam is not None:
-            selected_pts_mask_new = torch.cat((selected_pts_mask, torch.zeros(selected_pts_mask.sum(), device="cuda", dtype=bool)))
+            percentile95 = torch.quantile(transformed_xyz[:,2], 0.95)
+            selected_pts_mask = torch.where(transformed_xyz[:,2]>=percentile95, True, False)
+            if act=="clone":
+                self.densify_and_clone(selected_pts_mask=selected_pts_mask)
+            if act=="split":
+                self.densify_and_split(selected_pts_mask=selected_pts_mask)
+            if act=="prune":
+                self.densify_prune_by_size(precentile=98.5)
             
-            # world_view_transform = viewpoint_cam.world_view_transform
-            # transformed_xyz = process_means3d_using_cam_for_depth_condition(self.get_xyz,world_view_transform)
-            # percentile95 = torch.quantile(transformed_xyz[:,2], 0.95)
-            # percentile98 = torch.quantile(transformed_xyz[:,2], 0.98)
-            # selected_pts_mask = torch.where((transformed_xyz[:,2]>=percentile95) & (transformed_xyz[:,2]<=percentile98), True, False)
-            self.densify_and_split(selected_pts_mask=selected_pts_mask_new)
             
-    def densify_prune_by_size(self):
-        big_points_vs = self.max_radii2D > np.percentile(self.max_radii2D.detach().cpu().numpy(), 99.8)
+
+            
+    def densify_prune_by_size(self, precentile=99.8):
+        big_points_vs = self.max_radii2D > np.percentile(self.max_radii2D.detach().cpu().numpy(), precentile)
         #big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
-        big_points_ws = self.get_scaling.max(dim=1).values > np.percentile(self.get_scaling.max(dim=1).values.detach().cpu().numpy(), 99.9)
+        big_points_ws = self.get_scaling.max(dim=1).values > np.percentile(self.get_scaling.max(dim=1).values.detach().cpu().numpy(), precentile)
         prune_mask = torch.logical_or(big_points_vs, big_points_ws)
         self.prune_points(prune_mask)
 

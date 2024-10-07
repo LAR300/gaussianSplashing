@@ -96,6 +96,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
     curr_bs_dict = {}
     curr_bs_image = None
     uw_additions = {}
+    clone_split_range_iter = 0
     for iteration in range(first_iter, opt.iterations + 1):        
         if cfg_dot_dic.GeneralParameters.ip != "0" and cfg_dot_dic.GeneralParameters.port != -1:
             if network_gui.conn == None:
@@ -236,9 +237,13 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     
                     if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                         #gaussians.densify_and_prune_by_size(opt.remove_min_opacity_threshold, max_screen_size=False)
-                        gaussians.densify_and_prune(opt.densify_grad_threshold, scene.cameras_extent)
-                        if iteration % (3*opt.densification_interval) == 0:
-                            gaussians.densify_and_prune_in_depth(viewpoint_cam)
+                        gaussians.densify_and_prune(opt.densify_grad_threshold, scene.cameras_extent, iteration=iteration)
+                        if iteration % (2 * opt.densification_interval) == 0:
+                            act = "split" if (clone_split_range_iter%2==0) else "clone"
+                            act = "prune" if  (clone_split_range_iter==2) else None
+                            gaussians.densify_and_prune_in_depth(viewpoint_cam, act=act)
+                            clone_split_range_iter += 1
+                            clone_split_range_iter = 0 if clone_split_range_iter > 2 else clone_split_range_iter
                         gaussians.prune_nan()
                         
             elif dataset.densification == "MCMC":
