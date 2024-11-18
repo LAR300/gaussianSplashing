@@ -128,7 +128,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
                 "binf": binf,
                 "bs": bs}
     else:
-        rendered_image, radii= rasterizer(
+        rendered_image, radii, rendered_depth= rasterizer(
             means3D = means3D,
             means2D = means2D,
             shs = shs,
@@ -138,6 +138,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             rotations = rotations,
             cov3D_precomp = cov3D_precomp)
         out = {"render": rendered_image,
+               "rendered_depth": rendered_depth,
                 "viewspace_points": screenspace_points,
                 "visibility_filter" : radii > 0,
                 "radii": radii}

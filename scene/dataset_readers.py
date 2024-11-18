@@ -136,6 +136,8 @@ def storePly(path, xyz, rgb):
     ply_data.write(path)
 
 def readColmapSceneInfo(path, images, eval, llffhold=8):
+    scene_name = os.path.basename(path)
+    known_scene_flag = True
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -150,23 +152,25 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
     reading_dir = "images" if images == None else images
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
-    # part
-    #all_idx = [1,2,3]
-    eval_idx = [0, 4, 19] # Japanease Gardens
-    #eval_idx = [2, 7, 14] # Panama
-    #eval_idx = [1, 9, 20] # Curasao
-    #eval_idx = [0, 8, 16, 24, 32, 40, 48] # IUITable
-    
+    if scene_name.startswith("Japan"):
+        eval_idx = [0, 4, 19] # Japanease Gardens
+    elif scene_name.startswith("Panama"):
+        eval_idx = [2, 7, 14] # Panama
+    elif scene_name.startswith("Cur"):
+        eval_idx = [1, 9, 20] # Curasao
+    elif scene_name.startswith("IUI"):
+        eval_idx = [0, 8, 16, 24, 32, 40, 48] # IUITable
+    else:
+        known_scene_flag = False
     # complete
     all_idx = range(len(cam_infos))
-    #eval_idx = [-1]
-    
-    
     if eval:
-        # train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
-        # test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
-        train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in eval_idx and idx in all_idx]
-        test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in eval_idx and idx in all_idx]
+        if known_scene_flag:
+            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx not in eval_idx and idx in all_idx]
+            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in eval_idx and idx in all_idx]
+        else:
+            train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold != 0]
+            test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx % llffhold == 0]
     else:
         train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx in all_idx]
         test_cam_infos = []

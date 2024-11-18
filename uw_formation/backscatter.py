@@ -80,6 +80,7 @@ def getBackscatterByCurveFittingMultipleImages(I, dm, pdark=0.01, rhoflag=0, edg
         rho = I
 
     edges = np.linspace(np.min(dm), np.max(dm), edges_num)
+    edges = edges[:-2] # don't include the last two values, as it should be without objects
     zcluster = clusterRange(dm, edges)
     maskRho = np.zeros(dm.shape)
     for i in range(len(edges) - 1):

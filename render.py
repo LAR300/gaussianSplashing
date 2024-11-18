@@ -26,6 +26,7 @@ import numpy as np
 
 from utils.graphics_utils import getWorld2View2
 from utils.image_utils import apply_depth_colormap
+from uw_formation.video_maker import create_video_from_images
 
 def slerp(q0, q1, t):
     """Spherical linear interpolation."""
@@ -128,13 +129,20 @@ def interpolate_cameras(n_frames, initial_viewpoint_orig, final_viewpoint):
         interpolated_viewpoints.append(intepolated_viewpoint)
     return interpolated_viewpoints
 
-def create_video_set(scene, gaussians, pipe, bg, uw_flag, n_frames=10):
+def create_video_set(scene, gaussians, pipe, bg, uw_flag, n_frames=10, save_str="all", flag_str="OFF"):
+    if save_str:
+        if save_str == "all":
+            video_lst1 = ["video_rendered", "video_depth"]
+            video_lst2 = ["video_rendered_J", "video_rendered_J_normalize","video_rendered_backscattering_normalize"]
+            video_lst = video_lst1 + video_lst2
+        else: 
+            video_lst = [f"video_{save_str}"]
     viewpoint_stack = scene.getTrainCameras().copy()
     viewpoint_stack = sorted(viewpoint_stack, key=lambda x: x.image_name)
+    print("video list: ", video_lst)
+    print(f"Saving {viewpoint_stack[0].image_name} - {viewpoint_stack[-1].image_name}, frames between consecutive = {n_frames}...")
     for i in range(0, len(viewpoint_stack)-1):
-        
         viewpoint_cam = viewpoint_stack[i]
-        print(f"Saving for video {viewpoint_cam.image_name}, frames beween = {n_frames}...")
         interpolated_viewpoints = interpolate_cameras(n_frames, viewpoint_stack[i], viewpoint_stack[i+1])
         if i == len(viewpoint_stack)-2:
             viewpoint_stack[i+1].image_name = f"{viewpoint_stack[i+1].image_name}_" +  str(0).zfill(3)
@@ -142,15 +150,31 @@ def create_video_set(scene, gaussians, pipe, bg, uw_flag, n_frames=10):
         for viewpoint_cam in interpolated_viewpoints:
             rendering_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=uw_flag)
             rendering = rendering_pkg["render"]
-            rendering_J = rendering_pkg["rendered_J"]
+            
             rendering_depth_orig = rendering_pkg['rendered_depth'].detach().cpu().permute(1, 2, 0).numpy()
             rendering_depth = apply_depth_colormap(rendering_pkg['rendered_depth'].detach().cpu().permute(1, 2, 0)).numpy()
             
             scene.scene_save_image(rendering_depth, viewpoint_cam.image_name, os.path.join("train","video_depth"), depth=True)
             if viewpoint_cam.image_name.split("_")[-1] == "000":
                 scene.scene_save_image(rendering_depth_orig, viewpoint_cam.image_name[:-4], os.path.join("train","video_depth_orig"), depth=True, bit16=True)
-            scene.scene_save_image(rendering, viewpoint_cam.image_name, os.path.join("train","video_renders"))
-            scene.scene_save_image(rendering_J, viewpoint_cam.image_name, os.path.join("train","video_rendered_J"))
+            scene.scene_save_image(rendering, viewpoint_cam.image_name, os.path.join("train","video_rendered"))
+            if flag_str.startswith("HYB"):
+                rendering_J = rendering_pkg["rendered_J"]
+                scene.scene_save_image(rendering_J, viewpoint_cam.image_name, os.path.join("train","video_rendered_J"))
+                rendering_J = rendering_pkg["rendered_J"]
+                rendering_Bs = rendering_pkg["rendered_backscattering"]
+                rendering_J_norm = scene.normalize_image(rendering_J)
+                rendering_Bs_norm = scene.normalize_image(rendering_Bs)
+                scene.scene_save_image(rendering_J_norm, viewpoint_cam.image_name, os.path.join("train","video_rendered_J_normalize"))
+                scene.scene_save_image(rendering_Bs_norm, viewpoint_cam.image_name, os.path.join("train","video_rendered_backscattering_normalize"))
+    if not flag_str.startswith("HYB"):
+        for video_name in video_lst2:
+            video_lst.remove(video_name) if video_name in video_lst else None
+    for video_name in video_lst:
+        image_directory = os.path.join(scene.model_path, "train", video_name)
+        output_video_file =  os.path.join(scene.model_path, "train", video_name, f"{video_name}.mp4")
+        create_video_from_images(image_directory, output_video_file, fps=10)
+        
 
 def render_set(model_path, name, iteration, views, gaussians, pipeline, background):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")

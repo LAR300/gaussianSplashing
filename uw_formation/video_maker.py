@@ -26,7 +26,7 @@ def create_video_from_images(image_dir, output_video_path, fps=20):
     
     # Release the video writer
     video.release()
-    print(f"Video saved as {output_video_path}")
+    print(f"Video saved in {os.path.dirname(output_video_path)} as {os.path.basename(output_video_path)}")
     
 if __name__ == "__main__":
     source_dir = 'output/GroupExDebug/GroupExDebug__D3_wbSM_HYB_iter30000_00000'

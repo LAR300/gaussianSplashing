@@ -49,6 +49,7 @@ class GaussianModel:
         self._xyz = torch.empty(0)
         self._features_dc = torch.empty(0)
         self._features_rest = torch.empty(0)
+        self.tmp_radii = None
         # start addition uw
         self.uw_flag = uw_flag
         if uw_flag.startswith("HYB"):
@@ -289,13 +290,13 @@ class GaussianModel:
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         if self.uw_flag.startswith("HYB"):
             # start addition uw
-            zero_3 = torch.zeros((1, 3), device="cuda")
+            #zero_3 = torch.zeros((1, 3), device="cuda")
             #direct_ini = torch.Tensor([[0.007,0.008,0.008]]).cuda()
-            self._direct = nn.Parameter(zero_3).contiguous().requires_grad_(True)  # (1,3)
+            self._direct = nn.Parameter(torch.zeros((1, 3), device="cuda")).contiguous().requires_grad_(True)  # (1,3)
             #self._direct = nn.Parameter(torch.zeros_like(fused_point_cloud,device="cuda").contiguous().requires_grad_(True))  # (P,3) #########################V2
             # binf_ini = torch.Tensor([0.0611105 , 0.09450259, 0.14404887]).cuda()
             #binf_ini = torch.Tensor([0.15113972, 0.23778467, 0.25      ]).cuda()
-            self._binf = nn.Parameter(zero_3).contiguous().requires_grad_(True)  # (1,3)
+            self._binf = nn.Parameter(torch.zeros((1, 3), device="cuda")).contiguous().requires_grad_(True)  # (1,3)
             self._featuresbinf_dc = nn.Parameter(featuresuw[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
             self._featuresbinf_rest = nn.Parameter(featuresuw[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
             self._featuresbs_dc = nn.Parameter(featuresuw[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
@@ -304,7 +305,7 @@ class GaussianModel:
             self._featuresdirect_rest = nn.Parameter(featuresuw[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
             #bs_ini = torch.Tensor([0.25      , 0.06863068, 0.03780112]).cuda()
             #bs_ini = torch.Tensor([0.25, 0.12123746, 0.15481124]).cuda()
-            self._bs = nn.Parameter(zero_3.contiguous().requires_grad_(True)) # (1,3)
+            self._bs = nn.Parameter(torch.zeros((1, 3), device="cuda").contiguous().requires_grad_(True)) # (1,3)
             # end addition uw
 
     def training_setup(self, training_args):
@@ -318,7 +319,7 @@ class GaussianModel:
             {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
             # start addition uw
             {'params': [self._direct], 'lr': training_args.feature_lr, "name": "direct"}, # using the same learning rate 
-            {'params': [self._binf], 'lr': training_args.feature_lr , "name": "binf"}, # using the same learning rate 
+            {'params': [self._binf], 'lr': 2*training_args.feature_lr , "name": "binf"}, # using the same learning rate 
             
             {'params': [self._featuresbinf_dc], 'lr': training_args.feature_lr, "name": "fbinf_dc"},
             {'params': [self._featuresbinf_rest], 'lr': training_args.feature_lr / 20.0, "name": "fbinf_rest"},
@@ -412,7 +413,7 @@ class GaussianModel:
     def enforce_constraints_hyb(self, direct_range=(0.1,1), binf_range=(0.1,0.8), bs_range=(0.1,1), uw_additions=None):
         self._binf.data.clamp_(binf_range[0], binf_range[1])
         self._bs.data.clamp_(bs_range[0], bs_range[1]) 
-        # self._direct.data.clamp_(direct_range[0], direct_range[1]) 
+        self._direct.data.clamp_(direct_range[0], direct_range[1]) 
         # clamped = {}
         # clamped['binf'] = torch.clamp(uw_additions['binf'], min=binf_range[0], max=binf_range[1])
         # clamped['bs'] = torch.clamp(uw_additions['bs'], min=bs_range[0], max=bs_range[1])
@@ -547,7 +548,7 @@ class GaussianModel:
                 optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
     
-    def prune_points(self, mask):
+    def prune_points(self, mask, MCMC=False):
         valid_points_mask = ~mask
         optimizable_tensors = self._prune_optimizer(valid_points_mask)
         #self._direct = optimizable_tensors["direct"] #########################V2
@@ -558,11 +559,10 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
-
-        self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
-
-        self.denom = self.denom[valid_points_mask]
-        self.max_radii2D = self.max_radii2D[valid_points_mask]
+        if not MCMC:
+            self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
+            self.denom = self.denom[valid_points_mask]
+            self.max_radii2D = self.max_radii2D[valid_points_mask]
     
     def prune_nan(self):
         selected_pts_mask = torch.isnan(self.get_opacity).any(dim=1)
@@ -710,14 +710,34 @@ class GaussianModel:
             self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation) # without uw addition
         
 
-    def densify_and_prune(self, max_grad, extent, iteration=0):
+    def densify_and_prune(self, max_grad, extent):
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
         
         self.densify_and_clone(grads, max_grad, extent)
         self.densify_and_split(grads, max_grad, extent)
+        self.densify_prune_by_size()
         torch.cuda.empty_cache()
-    
+        
+    def densify_and_prune_orig(self, max_grad, min_opacity, extent, max_screen_size, radii):
+        grads = self.xyz_gradient_accum / self.denom
+        grads[grads.isnan()] = 0.0
+
+        self.tmp_radii = radii
+        self.densify_and_clone(grads, max_grad, extent)
+        self.densify_and_split(grads, max_grad, extent)
+
+        prune_mask = (self.get_opacity < min_opacity).squeeze()
+        if max_screen_size:
+            big_points_vs = self.max_radii2D > max_screen_size
+            big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+            prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
+        self.prune_points(prune_mask)
+        tmp_radii = self.tmp_radii
+        self.tmp_radii = None
+
+        torch.cuda.empty_cache()
+        
     def densify_and_prune_in_depth(self, viewpoint_cam, act="clone"):
         selected_pts_mask = None
         if viewpoint_cam is not None:
@@ -730,18 +750,52 @@ class GaussianModel:
             if act=="split":
                 self.densify_and_split(selected_pts_mask=selected_pts_mask)
             if act=="prune":
-                self.densify_prune_by_size(precentile=98.5)
-            
-            
+                self.densify_prune_by_size()
 
             
-    def densify_prune_by_size(self, precentile=99.8):
-        big_points_vs = self.max_radii2D > np.percentile(self.max_radii2D.detach().cpu().numpy(), precentile)
-        #big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
-        big_points_ws = self.get_scaling.max(dim=1).values > np.percentile(self.get_scaling.max(dim=1).values.detach().cpu().numpy(), precentile)
-        prune_mask = torch.logical_or(big_points_vs, big_points_ws)
-        self.prune_points(prune_mask)
-
+            
+    def prune_MCMC(self, percentile=99):
+        # Get scaling factors along each dimension
+        scaling_factors = self.get_scaling  
+        # Calculate isotropy as the inverse of the range between max and min scaling factors (smaller range = more isotropic)
+        isotropy_scores = 1.0 / (scaling_factors.max(dim=1).values - scaling_factors.min(dim=1).values + 1e-6)
+        size_scores = scaling_factors.mean(dim=1)
+        # # Combine isotropy and size into a single score (you can adjust weights as needed)
+        # combined_score = isotropy_scores * size_scores
+        # Standardize isotropy scores to have mean 0 and std 1
+        isotropy_scores = (isotropy_scores - isotropy_scores.mean()) / (isotropy_scores.std() + 1e-6)
+        # Standardize size scores to have mean 0 and std 1
+        size_scores = (size_scores - size_scores.mean()) / (size_scores.std() + 1e-6)
+        weight_isotropy = 0.0 
+        weight_size = 1.0      
+        combined_score = (weight_isotropy * isotropy_scores) + (weight_size * size_scores)
+        threshold = torch.quantile(combined_score, percentile / 100)
+        # Select Gaussians that are both large and isotropic
+        big_points_ws = combined_score > threshold
+        # Ensure that the modification to self._opacity does not track gradients
+        with torch.no_grad():
+            self._opacity = self._opacity.to(big_points_ws.device)
+            self._opacity[big_points_ws] = -8
+            
+    def densify_prune_by_size(self, percentile=99.9):
+        # Get scaling factors along each dimension
+        scaling_factors = self.get_scaling  
+        # Calculate isotropy as the inverse of the range between max and min scaling factors (smaller range = more isotropic)
+        isotropy_scores = 1.0 / (scaling_factors.max(dim=1).values - scaling_factors.min(dim=1).values + 1e-6)
+        size_scores = scaling_factors.mean(dim=1)
+        # # Combine isotropy and size into a single score (you can adjust weights as needed)
+        # combined_score = isotropy_scores * size_scores
+        # Standardize isotropy scores to have mean 0 and std 1
+        isotropy_scores = (isotropy_scores - isotropy_scores.mean()) / (isotropy_scores.std() + 1e-6)
+        # Standardize size scores to have mean 0 and std 1
+        size_scores = (size_scores - size_scores.mean()) / (size_scores.std() + 1e-6)
+        weight_isotropy = 0.3  
+        weight_size = 0.7      
+        combined_score = (weight_isotropy * isotropy_scores) + (weight_size * size_scores)
+        threshold = torch.quantile(combined_score, percentile / 100)
+        # Select Gaussians that are both large and isotropic
+        big_points_ws = combined_score > threshold
+        self.prune_points(big_points_ws)
         torch.cuda.empty_cache()
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):

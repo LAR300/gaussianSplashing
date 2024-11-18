@@ -12,6 +12,8 @@
 import os
 import random
 import json
+
+import torch
 from utils.general_utils import save_image, save_imagePIL, save_render_depth
 from utils.system_utils import searchForMaxIteration
 from scene.dataset_readers import readColmapSceneInfo
@@ -85,7 +87,16 @@ class Scene:
     def save(self, iteration):
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
         self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
-
+    
+    def normalize_image(self, image):
+                            min_val = image.min()
+                            max_val = image.max()
+                            if max_val > min_val:
+                                normalized_image = (image - min_val) / (max_val - min_val)
+                            else:
+                                normalized_image = torch.zeros_like(image)
+                            return normalized_image
+                        
     def scene_save_image(self, img, img_name, subdir, depth=False, bit16=False):
         dir_path = os.path.join(self.model_path, subdir)
         os.makedirs(dir_path, exist_ok=True)
@@ -98,9 +109,10 @@ class Scene:
            
         else:
             torchvision.utils.save_image(img, img_path)
+        
     def scene_save_fps(self, fps_str):
-        with open(os.path.join(self.model_path,"fps.txt"), 'w') as f:
-                    f.write(fps_str)
+        with open(os.path.join(self.model_path, "fps.txt"), 'a') as f:
+            f.write(fps_str + '\n')
     def getTrainCameras(self, scale=1.0):
         return self.train_cameras[scale]
 

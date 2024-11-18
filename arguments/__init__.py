@@ -128,14 +128,13 @@ class PipelineParams(ParamGroup):
 class UnderwaterParams(ParamGroup):
     def __init__(self, parser):
         
-        
         self.remove_bs_every = 500
-        self.exp_range_dl = 0.001
-        self.exp_range_dh = 1.0
+        self.exp_range_dl = 0.00001
+        self.exp_range_dh = 0.00005
         self.exp_range_bl = 0.001
-        self.exp_range_bh = 1#0.35
-        self.binf_range_l = 0.001 # 0.05
-        self.binf_range_h = 1#0.35
+        self.exp_range_bh = 1
+        self.binf_range_l = 0.01
+        self.binf_range_h = 1
         super().__init__(parser, "Underwater Parameters")
         
 class OptimizationParams(ParamGroup):
@@ -189,7 +188,7 @@ def add_general_params(parser):
     group_general_args.add_argument('--port', type=int, default=-1)
     group_general_args.add_argument('--debug_from', type=int, default=-1)
     group_general_args.add_argument('--detect_anomaly', action='store_true', default=False)
-    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 1500, 2000, 2500, 3000, 3500, 4500,6000, 7000, 10_000, 20_000 , 30_000, 50_000]) # default=[7_000, 30_000]
+    group_general_args.add_argument("--test_iterations", nargs="+", type=int, default=[1, 3000, 7000, 15_000, 20_000 , 30_000, 50_000]) # default=[7_000, 30_000]
     group_general_args.add_argument("--save_iterations", nargs="+", type=int, default=[75_000])
     group_general_args.add_argument("--quiet", action="store_true")
     group_general_args.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])

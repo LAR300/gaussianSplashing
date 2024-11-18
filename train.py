@@ -137,7 +137,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             image, depth_map, rendered_J, rendered_backscattering, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["rendered_J"], render_pkg["rendered_backscattering"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         else:
             render_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
-            image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+            image, rendered_depth, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["rendered_depth"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         # if iteration in cfg_dot_dic.GeneralParameters.test_iterations and dataset.underwater_processing.startswith("HYB"):
         #     save_image(os.path.join("uw_formation", "depth_gs" ,f"{viewpoint_cam.image_name}_gs{iteration}_depth.png"), depth_map, depth=True)
         pipe.debug = False
@@ -147,7 +147,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         if dataset.underwater_processing.startswith("HYB"):
             uw_additions["binf"] =  gaussians._binf #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbinf.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
             uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
-            uw_additions["direct"] =  eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
+            uw_additions["direct"] =  gaussians._direct #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
         loss, Ll1, Ll2, Psnr = loss_func(iteration, gt_image, opt, gaussians, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict, bs_image=curr_bs_image, uw_additions=uw_additions, uw=uw)
         if dataset.underwater_processing.startswith("HYB"):
             gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_dl, uw.exp_range_dh), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_bl, uw.exp_range_bh),
@@ -170,47 +170,44 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 progress_bar.close()
 
             # Log and save
-            training_rep_uw =  dataset.underwater_processing 
-            if cfg_dot_dic.GeneralParameters.save_for_metrics and iteration == opt.iterations:
-                
-                viewpoint_stack = scene.getTrainCameras().copy()
-                for viewpoint_cam in viewpoint_stack:
-                    print("Saving train for metrics...")
-                    rendering_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
-                    rendering = rendering_pkg["render"]
-                    rendering_J = rendering_pkg["rendered_J"]
-                    rendering_Bs = rendering_pkg["rendered_backscattering"]
-                    rendering_depth = apply_depth_colormap(render_pkg['rendered_depth'].detach().cpu().permute(1, 2, 0)).numpy()
-                    gt = viewpoint_cam.original_image[0:3, :, :]
-                    scene.scene_save_image(rendering_depth, viewpoint_cam.image_name, os.path.join("train","rendered_depth"), depth=True)
-                    scene.scene_save_image(gt, viewpoint_cam.image_name, os.path.join("train","gt"))
-                    scene.scene_save_image(rendering, viewpoint_cam.image_name, os.path.join("train","renders"))
-                    scene.scene_save_image(rendering_J, viewpoint_cam.image_name, os.path.join("train","rendered_J"))
-                    scene.scene_save_image(rendering_Bs, viewpoint_cam.image_name, os.path.join("train","rendered_backscattering"))
-                    
-                viewpoint_stack = scene.getTestCameras().copy()
+            training_rep_uw =  dataset.underwater_processing
+            def save_for_metrics(set_name='train', flag_str="OFF"):
                 execution_time_lst = []
+                viewpoint_stack = scene.getTrainCameras().copy() if set_name=="train" else scene.getTestCameras().copy()
+                print(f"Saving train for metrics - {set_name} , {os.path.join(scene.model_path, set_name)} ...")
                 for viewpoint_cam in viewpoint_stack:
-                    print("Saving test for metrics...")
-
+                    print(f"processing image - {viewpoint_cam.image_name}")
                     start_time = time.time()
-                    rendering_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing, im_test_flag=True)
-                    rendering = rendering_pkg["render"]
-                    rendering_J = rendering_pkg["rendered_J"]
-                    rendering_Bs = rendering_pkg["rendered_backscattering"]
-                    rendering_depth = apply_depth_colormap(render_pkg['rendered_depth'].detach().cpu().permute(1, 2, 0)).numpy()
+                    rendering_pkg = render(viewpoint_cam, gaussians, pipe, bg, uw_flag=dataset.underwater_processing)
                     end_time = time.time()
                     execution_time_lst.append(end_time - start_time)
+                    rendering = rendering_pkg["render"]
+                    rendering_depth = apply_depth_colormap(rendering_pkg['rendered_depth'].detach().cpu().permute(1, 2, 0)).numpy()
+                    rendering_depth_orig = rendering_pkg['rendered_depth'].detach().cpu().numpy().squeeze(axis=0)
                     gt = viewpoint_cam.original_image[0:3, :, :]
-                    scene.scene_save_image(rendering_depth, viewpoint_cam.image_name, os.path.join("eval","rendered_depth"), depth=True)
-                    scene.scene_save_image(gt, viewpoint_cam.image_name, os.path.join("eval","gt"))
-                    scene.scene_save_image(rendering, viewpoint_cam.image_name, os.path.join("eval","renders"))
-                    scene.scene_save_image(rendering_J, viewpoint_cam.image_name, os.path.join("eval","rendered_J"))
-                    scene.scene_save_image(rendering_Bs, viewpoint_cam.image_name, os.path.join("eval","rendered_backscattering"))
+                    scene.scene_save_image(rendering_depth_orig, viewpoint_cam.image_name, os.path.join(set_name,"rendered_depth_orig"), depth=True, bit16=True)
+                    scene.scene_save_image(rendering_depth_orig, viewpoint_cam.image_name, os.path.join(set_name,"rendered_depth_orig255"), depth=True, bit16=False)
+                    scene.scene_save_image(rendering_depth, viewpoint_cam.image_name, os.path.join(set_name,"rendered_depth"), depth=True)
+                    scene.scene_save_image(gt, viewpoint_cam.image_name, os.path.join(set_name,"gt"))
+                    scene.scene_save_image(rendering, viewpoint_cam.image_name, os.path.join(set_name,"renders"))
+                    if flag_str.startswith("HYB"):
+                        rendering_J = rendering_pkg["rendered_J"]
+                        rendering_Bs = rendering_pkg["rendered_backscattering"]
+                        rendering_J = scene.normalize_image(rendering_J)
+                        rendering_Bs = scene.normalize_image(rendering_Bs)
+                        scene.scene_save_image(rendering_J, viewpoint_cam.image_name, os.path.join(set_name,"rendered_J"))
+                        scene.scene_save_image(rendering_Bs, viewpoint_cam.image_name, os.path.join(set_name,"rendered_backscattering"))
                     
                 fps = sum(execution_time_lst) / len(execution_time_lst) 
-                print("Execution (render eval) time:", fps, "seconds")
-                scene.scene_save_fps("Frame Per Second (render eval): " + str(fps))
+                print(f"Execution (render {set_name}) time:", fps, "seconds")
+                scene.scene_save_fps(f"Frame Per Second (render {set_name}): " + str(int(1/fps)) + " or " + str(fps) + " seconds per frame")
+            if cfg_dot_dic.GeneralParameters.save_for_metrics and iteration == opt.iterations:
+                #gaussians.prune_MCMC(percentile=67)
+                save_for_metrics(set_name='train', flag_str=dataset.underwater_processing)
+                save_for_metrics(set_name='eval', flag_str=dataset.underwater_processing)
+                evaluate(cfg_dot_dic.LoadingParameters.model_path[2:])
+                    
+                
 
 
             
@@ -220,37 +217,31 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                             (dataset.underwater_processing, uw, uw_additions, dataset.removal_using_monocular_depth), curr_bs_dict)
             if (iteration in cfg_dot_dic.GeneralParameters.save_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
-                print("\n[ITER {}] Saving was denied by user".format(iteration))
+                print("\n[ITER {}] Saving was denied by the user".format(iteration))
                 #scene.save(iteration)
         
             # Densification
             if iteration % opt.opacity_reset_interval == 0:# or (dataset.white_background and iteration == opt.densify_from_iter):
                             gaussians.reset_opacity()
-                            # if dataset.underwater_processing.startswith("HYB") and uw_additions["direct"].any() > 0.6:
-                            #     gaussians.reset_hyb()
             if dataset.densification == "OFF":
                 if iteration < opt.densify_until_iter:
                     # Keep track of max radii in image-space for pruning
                     gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
                     gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
-                    
-                    
                     if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                        #gaussians.densify_and_prune_by_size(opt.remove_min_opacity_threshold, max_screen_size=False)
-                        gaussians.densify_and_prune(opt.densify_grad_threshold, scene.cameras_extent, iteration=iteration)
-                        if iteration % (2 * opt.densification_interval) == 0:
-                            act = "split" if (clone_split_range_iter%2==0) else "clone"
-                            act = "prune" if  (clone_split_range_iter==2) else None
-                            gaussians.densify_and_prune_in_depth(viewpoint_cam, act=act)
-                            clone_split_range_iter += 1
-                            clone_split_range_iter = 0 if clone_split_range_iter > 2 else clone_split_range_iter
+                        size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                        gaussians.densify_and_prune_orig(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii)
                         gaussians.prune_nan()
                         
             elif dataset.densification == "MCMC":
                 if iteration < opt.densify_until_iter and iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+                    # if iteration % (5*opt.densification_interval) == 0:
+                    #     gaussians.prune_MCMC()
                     dead_mask = (gaussians.get_opacity <= opt.remove_min_opacity_threshold).squeeze(-1)
                     gaussians.relocate_gs(dead_mask=dead_mask)
                     gaussians.add_new_gs(cap_max=args.cap_max)
+        
+                        
                 
             if opt.masking_interval != -1 and (iteration % opt.masking_interval) == 0:
                 gaussians.prune_by_maskingBG(scene.getTrainCameras())
@@ -290,7 +281,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
     if cfg_dot_dic.GeneralParameters.save_video:
         print("Creating video set...")
         with torch.no_grad():
-            create_video_set(scene, gaussians, pipe, background, dataset.underwater_processing)
+            create_video_set(scene, gaussians, pipe, background, dataset.underwater_processing, save_str="all", flag_str=dataset.underwater_processing)
     
     
     return minutes, seconds
@@ -306,8 +297,7 @@ def prepare_output_end(cfg_dot_dic, minutes, seconds, sweep_train_flag=False):
         write_dictionary_to_file(cfg_dot_dic, os.path.join(cfg_dot_dic.LoadingParameters.model_path,"cfg_args.json"))
     if wandb.run is not None:
         wandb.config.update({"TrainingTime": {"minutes": minutes, "seconds": seconds}})
-    # metrics
-    evaluate(cfg_dot_dic.LoadingParameters.model_path[2:])
+    # evaluate(cfg_dot_dic.LoadingParameters.model_path[2:])
 
 def training_report(iteration, Ll1, loss, l1_loss,
                     Ll2, l2_loss, Psnr,
@@ -336,37 +326,31 @@ def training_report(iteration, Ll1, loss, l1_loss,
                     render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs, im_test_flag=im_test_flag)
                     image = torch.clamp(render_pkg["render"], 0.0, 1.0)
                     gt_image = torch.clip(viewpoint.original_image.to("cuda"), 0.0, 1.0)
-                    if uw_tuple[0].startswith("HYB"):
-                        depth_map = torch.clip((render_pkg["rendered_depth"] - render_pkg["rendered_depth"].min()) / (render_pkg["rendered_depth"].max() - render_pkg["rendered_depth"].min()), 0.0, 1.0)
-                        try:
-                            depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0)
-                        except:
-                            depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy()
-                        rendered_J = torch.clamp(render_pkg["rendered_J"], 0.0, 1.0)
-                        rendered_backscattering = torch.clamp(render_pkg["rendered_backscattering"], 0.0, 1.0)
-                        #rendered_backscattering = torch.clip((render_pkg["rendered_backscattering"] - render_pkg["rendered_backscattering"].min()) / (render_pkg["rendered_backscattering"].max() - render_pkg["rendered_backscattering"].min()), 0.0, 1.0)
-                       
+                    depth_map = torch.clip((render_pkg["rendered_depth"] - render_pkg["rendered_depth"].min()) / (render_pkg["rendered_depth"].max() - render_pkg["rendered_depth"].min()), 0.0, 1.0)
+                    try:
+                        depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0)
+                    except:
+                        depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy()
                     
-                        if uw_tuple[-1]: #removal_using_monocular_depth
+                    if uw_tuple[-1]: #removal_using_monocular_depth
                             if viewpoint.image_depth_monocular is None:
                                 depth_map_unnormalize = depth_estimation(viewpoint.original_image.cpu().numpy())
                                 viewpoint.image_depth_monocular = depth_map_unnormalize
                             else:
                                 depth_map_unnormalize = viewpoint.image_depth_monocular
                             depth_map_normalize = torch.clip((torch.Tensor(depth_map_unnormalize) - torch.Tensor(depth_map_unnormalize).min()) / (torch.Tensor(depth_map_unnormalize).max() - torch.Tensor(depth_map_unnormalize).min()), 0.0, 1.0)
-                     
-                            
+                    if uw_tuple[0].startswith("HYB"):
+                        rendered_backscattering = scene.normalize_image(render_pkg["rendered_backscattering"])
+                        rendered_J = scene.normalize_image(render_pkg["rendered_J"])
+                        # rendered_backscattering = torch.clamp(render_pkg["rendered_backscattering"], 0.0, 1.0)
+                        # rendered_J = torch.clamp(render_pkg["rendered_J"], 0.0, 1.0)     
                     l1_curr = l1_loss(image, gt_image).mean().double()
                     l1_test += l1_curr
                     l2_curr = l2_loss(image, gt_image).mean().double()
                     l2_test += l2_curr
                     psnr_curr = psnr(image, gt_image).mean().double()
                     psnr_test += psnr_curr
-                    
-                    
-                    
-                    
-                    
+    
                     if wandb.run is not None and (idx < 8):
                         def torch2pil(torch_image):
                             tr = torchvision.transforms.ToPILImage()
@@ -378,13 +362,13 @@ def training_report(iteration, Ll1, loss, l1_loss,
                             return rgb_image#bgr_image[..., ::-1] # Convert BGR (CV format) to RGB (WB format)
                         round_num = 5
                         wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered": wandb.Image(wb_torch2np(image[None]), caption=f'l1 = {round(float(l1_curr),round_num)},  psnr = {round(float(psnr_curr),round_num)}')}, step=iteration)
-                        if uw_tuple[0].startswith("HYB"):
-                            try:
+                        try:
                                 wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_depth": wandb.Image(apply_depth_colormap(render_pkg['rendered_depth'].detach().cpu().permute(1, 2, 0)).numpy(), caption=f'depth_map')}, step=iteration)
                                 if uw_tuple[-1]: #removal_using_monocular_depth
                                     wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_depth_monocular": wandb.Image(apply_depth_colormap(depth_map_normalize.detach().cpu().unsqueeze(-1)).numpy(), caption=f'depth_map_monocular')}, step=iteration)
-                            except:
+                        except:
                                 pass
+                        if uw_tuple[0].startswith("HYB"):
                             if iteration==testing_iterations[0] and viewpoint.mask is not None :
                                 wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/mask": wandb.Image(wb_torch2np(viewpoint.mask), caption=f'mask')}, step=iteration)
                             # Convert tensors to NumPy arrays and flatten them
@@ -396,6 +380,7 @@ def training_report(iteration, Ll1, loss, l1_loss,
                             direct0: {round(float(bd_values[0]),round_num)}\n direct1: {round(float(bd_values[1]),round_num)}\n direct2: {round(float(bd_values[2]),round_num)}'
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_J": wandb.Image(wb_torch2np(rendered_J[None]), caption=rendered_J_caption)}, step=iteration)
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_backscattering": wandb.Image(wb_torch2np(rendered_backscattering[None]), caption=f'rendered_backscattering')}, step=iteration)
+                            
                             
                             
                             # wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/Bs_histogram": wandb.Histogram(uw_tuple[2]["bs"].detach().cpu()),
@@ -476,25 +461,28 @@ def logger_aux(namespace_dict):
     wb_dir = namespace_dict["WandbParameters"]["wb_dir"]
     wb_id = namespace_dict["WandbParameters"]["wb_id"]
     underwater_processing = namespace_dict["LoadingParameters"]["underwater_processing"]
+    mcmc_mode = namespace_dict["LoadingParameters"]["densification"]
     source_path = namespace_dict["LoadingParameters"]["source_path"]
     iteration = namespace_dict["OptimizationParameters"]["iterations"]
-    folder_path = os.path.join("./output/",  namespace_dict["WandbParameters"]["wb_group"])
+    
     namespace_dict["WandbParameters"]["wb_name"] = namespace_dict["WandbParameters"]["wb_name"] + "_" + os.path.splitext(os.path.normpath(source_path).split(os.path.sep)[-1])[0] # base_name_without_extension
     wb_name = namespace_dict["WandbParameters"]["wb_name"]
+    wb_group = wb_group + "_" + f"MCMode_{mcmc_mode}" + "_" + f"uw_{underwater_processing}"
+    folder_path = os.path.join("./output/",  wb_group)
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
         print(f"Directory '{folder_path}' created successfully.")
     else:
         print(f"Directory '{folder_path}' already exists.")
     files = os.listdir(folder_path)
-    matching_files = [file for file in files if file.startswith(f"{wb_group}_{wb_name}_{underwater_processing}_")]
+    matching_files = [file for file in files if file.startswith(f"{wb_group}_{wb_name}_iter{iteration}")]
     numbers = [int(file.split("_")[-1]) for file in matching_files]
     if numbers:
         next_number = max(numbers) + 1
     else:
         next_number = 0  # If no files found, start with 0
     next_number_padded = str(next_number).zfill(5)
-    next_filename = f"{wb_group}_{wb_name}_{underwater_processing}_iter{iteration}_{next_number_padded}"
+    next_filename = f"{wb_group}_{wb_name}_iter{iteration}_{next_number_padded}"
     new_run=False
     if not wb_resume in ["allow", "must", "auto"]:
         # new run
