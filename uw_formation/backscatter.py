@@ -357,13 +357,13 @@ def main_run():
     output_image_name_addbs_fog = f"{input_image_name}_fog.png"
     output_image_name_bs = f"{input_image_name}_bs.png"
     image = load_image(input_image)
-    image_depth = None
+    
     iters = 3000
-    image_depth = None
 
     
-
-
+    # image_depth = load_image(os.path.join(depth_dir,f"{input_image_name}{ext}"))
+    # image_depth = image_depth[:,:,0]
+    image_depth = None
     clean_from_bs, bs_image, bs_dict, image_depth = preform_full_bs_removal(image, bs_dict=None, image_depth=image_depth, return_depth=True)
     save_image(os.path.join(clean_dir,output_image_name_cleanbs), clean_from_bs)
 

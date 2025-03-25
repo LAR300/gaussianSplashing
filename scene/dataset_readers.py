@@ -101,9 +101,12 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         if os.path.basename(extr.name) in os.listdir(images_folder):
             image = load_image(image_path)
             mask=None
-            mask_dir_path = os.path.join(images_folder, "..", "masks")
-            if os.path.isdir(mask_dir_path) and os.path.isfile(os.path.join(mask_dir_path, image_name + ".png")):
-                mask = load_mask(os.path.join(mask_dir_path, image_name + ".png"))
+            # mask_dir_path = os.path.join(images_folder, "..", "masks")
+            # if os.path.isdir(mask_dir_path) and os.path.isfile(os.path.join(mask_dir_path, image_name + ".png")):
+            #     mask = load_mask(os.path.join(mask_dir_path, image_name + ".png"))
+            #     mask_3_channels = np.expand_dims(mask, axis=-1)  # Shape becomes (918, 1384, 1)
+            #     mask_3_channels = np.repeat(mask_3_channels, 3, axis=-1)  # Shape becomes (918, 1384, 3)
+            #     image = image * mask_3_channels
             cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                                 image_path=image_path, image_name=image_name, width=width, height=height, mask=mask)
             cam_infos.append(cam_info)
