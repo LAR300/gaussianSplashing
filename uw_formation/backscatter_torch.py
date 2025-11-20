@@ -62,8 +62,18 @@ def estimateBackscatter(Ism, zsm, pdark=0.1, intervals_num=20, resized_highet=No
 
     Bc_inf = out[0, :]
     bcb = out[1, :]
-    params = {'Bc_inf': Bc_inf, 'betac_b': bcb, 'pdark': pdark}
-    return params # BGR
+    
+    # Fix color channel ordering to match RGB convention (like numpy version)
+    # Swap R and B channels: BGR -> RGB
+    Bc_inf_rgb = torch.stack([Bc_inf[2], Bc_inf[1], Bc_inf[0]], dim=0)
+    bcb_rgb = torch.stack([bcb[2], bcb[1], bcb[0]], dim=0)
+    
+    # Validate estimated parameters
+    print(f"Torch Estimated B_infinity (RGB): [{Bc_inf_rgb[0]:.3f}, {Bc_inf_rgb[1]:.3f}, {Bc_inf_rgb[2]:.3f}]")
+    print(f"Torch Estimated betac_b (RGB): [{bcb_rgb[0]:.3f}, {bcb_rgb[1]:.3f}, {bcb_rgb[2]:.3f}]")
+    
+    params = {'Bc_inf': Bc_inf_rgb, 'betac_b': bcb_rgb, 'pdark': pdark}
+    return params # RGB (fixed from BGR)
 
 def getBackscatterByCurveFittingMultipleImages(I, dm, pdark=1, rhoflag=0, edges_num=10):
     if rhoflag:
@@ -168,6 +178,8 @@ def load_image(filename, code=cv2.IMREAD_COLOR, depth=False):
         return torch.from_numpy(cv2.imread(filename, cv2.IMREAD_GRAYSCALE))
     else:
         image = cv2.imread(filename, code)
+        if code == cv2.IMREAD_COLOR or code == cv2.IMREAD_UNCHANGED:
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # BGR->RGB (match numpy version)
         if np.max(image) > 1:
             image = image / 255.0
         return torch.from_numpy(image)
@@ -176,7 +188,10 @@ def save_image(filename, image):
     if torch.max(image) <= 1:
         image = image * 255.0
     image = chw2hwc(image)
-    cv2.imwrite(filename, image.numpy())
+    # Convert RGB to BGR for cv2.imwrite (match numpy version)
+    if image.shape[-1] == 3:
+        image = cv2.cvtColor(image.numpy(), cv2.COLOR_RGB2BGR)
+    cv2.imwrite(filename, image)
 
 def chw2hwc(image, invers=False):
     if invers:

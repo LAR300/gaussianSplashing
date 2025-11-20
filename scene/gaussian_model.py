@@ -178,6 +178,9 @@ class GaussianModel:
     def get_features(self):
         features_dc = self._features_dc
         features_rest = self._features_rest
+        # Ensure features_rest has the expected number of SH coefficients
+        assert features_rest.shape[1] == (self.max_sh_degree + 1) ** 2 - 1, \
+            f"Mismatch in features_rest shape: expected {(self.max_sh_degree + 1) ** 2 - 1}, got {features_rest.shape[1]}"
         return torch.cat((features_dc, features_rest), dim=1)
      # start addition uw
     @property
@@ -290,22 +293,34 @@ class GaussianModel:
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         if self.uw_flag.startswith("HYB"):
             # start addition uw
-            #zero_3 = torch.zeros((1, 3), device="cuda")
-            #direct_ini = torch.Tensor([[0.007,0.008,0.008]]).cuda()
-            self._direct = nn.Parameter(torch.zeros((1, 3), device="cuda")).contiguous().requires_grad_(True)  # (1,3)
-            #self._direct = nn.Parameter(torch.zeros_like(fused_point_cloud,device="cuda").contiguous().requires_grad_(True))  # (P,3) #########################V2
-            # binf_ini = torch.Tensor([0.0611105 , 0.09450259, 0.14404887]).cuda()
-            #binf_ini = torch.Tensor([0.15113972, 0.23778467, 0.25      ]).cuda()
-            self._binf = nn.Parameter(torch.zeros((1, 3), device="cuda")).contiguous().requires_grad_(True)  # (1,3)
-            self._featuresbinf_dc = nn.Parameter(featuresuw[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
-            self._featuresbinf_rest = nn.Parameter(featuresuw[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
-            self._featuresbs_dc = nn.Parameter(featuresuw[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
-            self._featuresbs_rest = nn.Parameter(featuresuw[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
-            self._featuresdirect_dc = nn.Parameter(featuresuw[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3), first coefficient represents the DC
-            self._featuresdirect_rest = nn.Parameter(featuresuw[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3), the rest of the coefficients
-            #bs_ini = torch.Tensor([0.25      , 0.06863068, 0.03780112]).cuda()
-            #bs_ini = torch.Tensor([0.25, 0.12123746, 0.15481124]).cuda()
-            self._bs = nn.Parameter(torch.zeros((1, 3), device="cuda").contiguous().requires_grad_(True)) # (1,3)
+            # Initialize underwater parameters with reasonable non-zero values to prevent NaN issues
+            # Based on common underwater imaging parameters - Blue should dominate underwater
+            # These values are based on typical underwater attenuation coefficients
+            direct_init = torch.tensor([[0.15, 0.18, 0.20]], device="cuda")  # Direct transmission attenuation (higher for blue)
+            binf_init = torch.tensor([[0.10, 0.15, 0.25]], device="cuda")    # Background infinity values (Blue dominant)
+            bs_init = torch.tensor([[0.08, 0.10, 0.15]], device="cuda")      # Backscattering coefficients (Blue dominant, moderate values to avoid overflow)
+            
+            self._direct = nn.Parameter(direct_init.clone()).contiguous().requires_grad_(True)  # (1,3)
+            self._binf = nn.Parameter(binf_init.clone()).contiguous().requires_grad_(True)  # (1,3)
+            self._bs = nn.Parameter(bs_init.clone()).contiguous().requires_grad_(True) # (1,3)
+            
+            # Initialize SH features with DC components matching the scalar values
+            # DC component (first coefficient) should encode the base color
+            featuresuw_binf = torch.zeros((1, 3, (self.max_sh_degree + 1) ** 2), device="cuda")
+            featuresuw_binf[:, :, 0] = binf_init  # Set DC to match binf_init
+            
+            featuresuw_bs = torch.zeros((1, 3, (self.max_sh_degree + 1) ** 2), device="cuda")
+            featuresuw_bs[:, :, 0] = bs_init  # Set DC to match bs_init
+            
+            featuresuw_direct = torch.zeros((1, 3, (self.max_sh_degree + 1) ** 2), device="cuda")
+            featuresuw_direct[:, :, 0] = direct_init  # Set DC to match direct_init
+            
+            self._featuresbinf_dc = nn.Parameter(featuresuw_binf[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3)
+            self._featuresbinf_rest = nn.Parameter(featuresuw_binf[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3)
+            self._featuresbs_dc = nn.Parameter(featuresuw_bs[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3)
+            self._featuresbs_rest = nn.Parameter(featuresuw_bs[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3)
+            self._featuresdirect_dc = nn.Parameter(featuresuw_direct[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True)) # (1,1,3)
+            self._featuresdirect_rest = nn.Parameter(featuresuw_direct[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True)) # (1,15,3)
             # end addition uw
 
     def training_setup(self, training_args):
@@ -411,8 +426,35 @@ class GaussianModel:
 
     # start addition uw
     def enforce_constraints_hyb(self, direct_range=(0.1,1), binf_range=(0.1,0.8), bs_range=(0.1,1), uw_additions=None):
+        # Check for NaN/Inf values and reset to safe defaults if needed
+        if torch.isnan(self._binf.data).any() or torch.isinf(self._binf.data).any():
+            print(f"[WARNING] NaN/Inf detected in _binf, resetting to safe values")
+            self._binf.data = torch.tensor([[0.10, 0.15, 0.25]], device=self._binf.device)
+        
+        if torch.isnan(self._bs.data).any() or torch.isinf(self._bs.data).any():
+            print(f"[WARNING] NaN/Inf detected in _bs, resetting to safe values")
+            self._bs.data = torch.tensor([[0.08, 0.10, 0.15]], device=self._bs.device)  # Blue dominant for underwater, moderate values
+            
+        if torch.isnan(self._direct.data).any() or torch.isinf(self._direct.data).any():
+            print(f"[WARNING] NaN/Inf detected in _direct, resetting to safe values")
+            self._direct.data = torch.tensor([[0.15, 0.18, 0.20]], device=self._direct.device)
+        
+        # Apply constraints with channel-specific clamping for underwater scenarios
+        # For underwater: Red < Green < Blue (blue light penetrates deeper)
+        
+        # B_infinity: Blue should be higher than Red
+        # self._binf.data[0, 0].clamp_(binf_range[0], binf_range[1] * 0.7)      # Red: lower limit
+        # self._binf.data[0, 1].clamp_(binf_range[0], binf_range[1] * 0.85)     # Green: medium  
+        # self._binf.data[0, 2].clamp_(binf_range[0], binf_range[1])            # Blue: full range
         self._binf.data.clamp_(binf_range[0], binf_range[1])
-        self._bs.data.clamp_(bs_range[0], bs_range[1]) 
+        
+        # Backscatter: Blue should dominate underwater
+        # self._bs.data[0, 0].clamp_(bs_range[0], bs_range[1] * 0.6)            # Red: lower limit
+        # self._bs.data[0, 1].clamp_(bs_range[0], bs_range[1] * 0.8)            # Green: medium
+        # self._bs.data[0, 2].clamp_(bs_range[0], bs_range[1])                  # Blue: full range
+        self._bs.data.clamp_(bs_range[0], bs_range[1])
+        
+        # Direct transmission: uniform constraints (less critical for color)
         self._direct.data.clamp_(direct_range[0], direct_range[1]) 
         # clamped = {}
         # clamped['binf'] = torch.clamp(uw_additions['binf'], min=binf_range[0], max=binf_range[1])
@@ -533,29 +575,64 @@ class GaussianModel:
                     or group["name"] == "fbs_dc" or group["name"] == "fbs_rest" \
                         or group["name"] == "fdirect_dc" or group["name"] == "fdirect_rest":
                     continue
-            stored_state = self.optimizer.state.get(group['params'][0], None)
+            
+            param = group['params'][0]
+            param_name = group["name"]
+            stored_state = self.optimizer.state.get(param, None)
+            
+            # Debug logging for f_rest
+            if param_name == "f_rest":
+                print(f"[DEBUG _prune_optimizer] Before pruning {param_name}: shape = {param.shape}, mask sum = {mask.sum().item()}/{len(mask)}")
+            
+            # Apply mask - ensure proper indexing for multi-dimensional tensors
+            if len(param.shape) > 1:
+                # For multi-dimensional tensors, only apply mask to first dimension
+                pruned_param = param[mask]
+            else:
+                pruned_param = param[mask]
+            
+            # Debug logging for f_rest
+            if param_name == "f_rest":
+                print(f"[DEBUG _prune_optimizer] After pruning {param_name}: shape = {pruned_param.shape}")
+            
             if stored_state is not None:
+                # Prune optimizer state
                 stored_state["exp_avg"] = stored_state["exp_avg"][mask]
                 stored_state["exp_avg_sq"] = stored_state["exp_avg_sq"][mask]
 
-                del self.optimizer.state[group['params'][0]]
-                group["params"][0] = nn.Parameter((group["params"][0][mask].requires_grad_(True)))
+                del self.optimizer.state[param]
+                group["params"][0] = nn.Parameter(pruned_param.requires_grad_(True))
                 self.optimizer.state[group['params'][0]] = stored_state
 
                 optimizable_tensors[group["name"]] = group["params"][0]
             else:
-                group["params"][0] = nn.Parameter(group["params"][0][mask].requires_grad_(True))
+                group["params"][0] = nn.Parameter(pruned_param.requires_grad_(True))
                 optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
     
     def prune_points(self, mask, MCMC=False):
         valid_points_mask = ~mask
+        
+        # Prevent pruning ALL Gaussians - keep at least a few
+        num_valid = valid_points_mask.sum().item()
+        if num_valid == 0:
+            print(f"WARNING: Attempted to prune all Gaussians! Keeping top 100 by opacity instead.")
+            # Keep top 100 Gaussians by opacity
+            top_k = min(100, mask.shape[0])
+            top_indices = torch.topk(self.get_opacity.squeeze(), k=top_k).indices
+            valid_points_mask = torch.zeros_like(mask, dtype=torch.bool)
+            valid_points_mask[top_indices] = True
+        
         optimizable_tensors = self._prune_optimizer(valid_points_mask)
         #self._direct = optimizable_tensors["direct"] #########################V2
 
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
+        
+        # Debug logging
+        print(f"[DEBUG prune_points] After _prune_optimizer: _features_rest.shape = {self._features_rest.shape}")
+        
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
@@ -563,6 +640,21 @@ class GaussianModel:
             self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
             self.denom = self.denom[valid_points_mask]
             self.max_radii2D = self.max_radii2D[valid_points_mask]
+        
+        # Verify _features_rest has correct shape
+        expected_sh_coeffs = (self.max_sh_degree + 1) ** 2 - 1
+        if self._features_rest.shape[1] != expected_sh_coeffs:
+            print(f"WARNING: _features_rest has incorrect shape {self._features_rest.shape}, expected [..., {expected_sh_coeffs}, 3]")
+            print(f"Reinitializing _features_rest with correct shape")
+            # Create properly shaped tensor
+            num_points = self._features_rest.shape[0]
+            new_features_rest = torch.zeros((num_points, expected_sh_coeffs, 3), device="cuda")
+            # Update via optimizer to maintain proper state
+            optimizable_tensors_fixed = self.replace_tensor_to_optimizer(new_features_rest, "f_rest")
+            if "f_rest" in optimizable_tensors_fixed:
+                self._features_rest = optimizable_tensors_fixed["f_rest"]
+            print(f"[DEBUG prune_points] After fix: _features_rest.shape = {self._features_rest.shape}")
+
     
     def prune_nan(self):
         selected_pts_mask = torch.isnan(self.get_opacity).any(dim=1)
@@ -808,6 +900,90 @@ class GaussianModel:
     def prune_by_maskingBG(self, viewpoint_stack):
         prune_mask = process_mean3d_using_camera_mask(self.get_xyz, viewpoint_stack)
         self.prune_points(prune_mask)
+    
+    def get_near_large_gaussian_mask(self, camera_center, distance_threshold=2.0, screen_size_threshold=50.0, opacity_threshold=0.8):
+        """
+        Identify near-camera large Gaussians that should be pruned.
+        
+        Args:
+            camera_center: Camera center position in world coordinates (3D tensor)
+            distance_threshold: Maximum distance from camera to be considered 'near' (float)
+            screen_size_threshold: Minimum screen radius to be considered 'large' (float)
+            opacity_threshold: Minimum opacity to be considered for pruning (float)
+            
+        Returns:
+            Boolean mask indicating which Gaussians should be pruned
+        """
+        # Compute distance from each Gaussian center to camera center
+        gaussian_positions = self.get_xyz  # Shape: (N, 3)
+        num_gaussians = gaussian_positions.shape[0]
+        distances = torch.norm(gaussian_positions - camera_center.unsqueeze(0), dim=1)  # Shape: (N,)
+        
+        # Check conditions:
+        # 1. Gaussian is close to camera
+        near_camera = distances < distance_threshold
+        
+        # 2. Gaussian has large projected area (using max_radii2D from rasterization)
+        # Handle size mismatch by ensuring max_radii2D has the correct size
+        if self.max_radii2D.shape[0] != num_gaussians:
+            # If sizes don't match, resize max_radii2D to match current number of Gaussians
+            if self.max_radii2D.shape[0] < num_gaussians:
+                # Pad with zeros for new Gaussians
+                padding_size = num_gaussians - self.max_radii2D.shape[0]
+                padding = torch.zeros(padding_size, device=self.max_radii2D.device)
+                self.max_radii2D = torch.cat([self.max_radii2D, padding], dim=0)
+            else:
+                # Truncate if we have fewer Gaussians (shouldn't happen during normal flow)
+                self.max_radii2D = self.max_radii2D[:num_gaussians]
+        
+        large_screen_size = self.max_radii2D > screen_size_threshold
+        
+        # 3. Gaussian has high opacity (confident placement, not just noise)
+        opacity_tensor = self.get_opacity.squeeze(-1)
+        
+        # Handle size mismatch for opacity tensor (similar to max_radii2D)
+        if opacity_tensor.shape[0] != num_gaussians:
+            print(f"[WARNING] Opacity tensor size mismatch: expected {num_gaussians}, got {opacity_tensor.shape[0]}. This might indicate a data inconsistency.")
+            # Skip near-large Gaussian pruning if we have inconsistent data
+            return torch.zeros(num_gaussians, dtype=torch.bool, device=gaussian_positions.device)
+        
+        high_opacity = opacity_tensor > opacity_threshold
+        
+        # Ensure all tensors have the same size before combining
+        assert near_camera.shape[0] == large_screen_size.shape[0] == high_opacity.shape[0], \
+            f"Tensor size mismatch: near_camera={near_camera.shape[0]}, large_screen_size={large_screen_size.shape[0]}, high_opacity={high_opacity.shape[0]}"
+        
+        # Combine all conditions: near AND large AND high opacity
+        prune_mask = near_camera & large_screen_size & high_opacity
+        
+        return prune_mask
+    
+    def prune_near_large_gaussians(self, camera_center, distance_threshold=2.0, screen_size_threshold=50.0, opacity_threshold=0.8, verbose=False):
+        """
+        Remove near-camera large Gaussians that are likely placed incorrectly.
+        
+        Args:
+            camera_center: Camera center position in world coordinates (3D tensor)
+            distance_threshold: Maximum distance from camera to be considered 'near'
+            screen_size_threshold: Minimum screen radius to be considered 'large' 
+            opacity_threshold: Minimum opacity to be considered for pruning
+            verbose: Whether to print pruning statistics
+        """
+        prune_mask = self.get_near_large_gaussian_mask(
+            camera_center, distance_threshold, screen_size_threshold, opacity_threshold
+        )
+        
+        num_to_prune = prune_mask.sum().item()
+        total_gaussians = prune_mask.shape[0]
+        
+        if verbose and num_to_prune > 0:
+            print(f"[Densification] Pruning {num_to_prune}/{total_gaussians} near-camera large Gaussians "
+                  f"(dist < {distance_threshold}, radius > {screen_size_threshold}, opacity > {opacity_threshold})")
+        
+        if num_to_prune > 0:
+            self.prune_points(prune_mask)
+            
+        return num_to_prune
         
 ###################################################### MCMC #####################################################################
 

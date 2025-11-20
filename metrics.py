@@ -68,7 +68,7 @@ def draw_box(images_dir, top_left_x, top_left_y, width, height):
         saveImageSpecial(image_to_save=image, origin_image_path=image_path, str_addition="redsquare")
         image.close()
 
-def evaluate(scene_dir, top_left_x=350, top_left_y=125, width=300, height=150):
+def evaluate(scene_dir, top_left_x=550, top_left_y=175, width=275, height=150):
     if type(scene_dir) != str:
         scene_dir = scene_dir[0]
     full_dict = {}
@@ -97,7 +97,21 @@ def evaluate(scene_dir, top_left_x=350, top_left_y=125, width=300, height=150):
                 gt_dir = set_dir/ "gt"
                 renders_dir = set_dir / "renders"
                 print("  Red flag:", red_flag)
+                # Make sure renders have the same size as gt images
+                # (This will resize images in renders_dir to match those in gt_dir, based on corresponding filenames)
+                gt_fnames = set(os.listdir(gt_dir))
+                for fname in os.listdir(renders_dir):
+                    if fname in gt_fnames:
+                        gt_image_path = gt_dir / fname
+                        render_image_path = renders_dir / fname
+                        with Image.open(gt_image_path) as gt_img, Image.open(render_image_path) as render_img:
+                            if render_img.size != gt_img.size:
+                                # Resize render image to match gt size and overwrite
+                                render_img = render_img.resize(gt_img.size, Image.BICUBIC)
+                                render_img.save(render_image_path)
+
                 if red_flag:
+                    
                     draw_box(gt_dir, top_left_x, top_left_y, width, height)
                     draw_box(renders_dir, top_left_x, top_left_y, width, height)
                 eval_images(scene_dir, top_left_x, top_left_y, width, height, full_dict, per_view_dict, red_flag, set_key, gt_dir, renders_dir)
@@ -121,9 +135,15 @@ def eval_images(scene_dir, top_left_x, top_left_y, width, height, full_dict, per
     lpipss = []
 
     for idx in tqdm(range(len(renders)), desc=f"Metric evaluation progress"):
-        ssims.append(ssim(renders[idx], gts[idx]))
-        psnrs.append(psnr(renders[idx], gts[idx]))
-        lpipss.append(lpips(renders[idx], gts[idx], net_type='vgg'))
+        render = renders[idx]
+        gt = gts[idx]
+        # Check shapes and resize if needed (expecting (1,3,H,W) for both)
+        if render.shape != gt.shape:
+            # Resize render to match gt's size (assuming both are CUDA tensors, 1,3,h,w)
+            render = torch.nn.functional.interpolate(render, size=gt.shape[2:4], mode='bilinear', align_corners=False)
+        ssims.append(ssim(render, gt))
+        psnrs.append(psnr(render, gt))
+        lpipss.append(lpips(render, gt, net_type='vgg'))
 
     print("  SSIM : {:>12.7f}".format(torch.tensor(ssims).mean(), ".5"))
     print("  PSNR : {:>12.7f}".format(torch.tensor(psnrs).mean(), ".5"))

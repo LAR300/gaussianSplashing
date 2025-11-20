@@ -19,27 +19,45 @@ from utils.image_utils import erode, psnr
 from uw_formation.backscatter import preform_full_bs_removal
 
 def loss_func(iteration, gt_image, opt, gaussians, uw_flag=None, render_pkg=None, bs_dict=None, bs_image=None, uw_additions=None, uw=None):
-    # Loss
-    Ll1 = l1_loss( render_pkg["render"], gt_image)
-    Ll2 = l2_loss( render_pkg["render"], gt_image).detach()
-    Psnr = psnr( render_pkg["render"], gt_image).mean().double().detach()
-    #loss = (1.0 - opt.lambda_dssim) * (1/psnr( render_pkg["render"], gt_image).mean()) + opt.lambda_dssim * (1.0 - ssim( render_pkg["render"], gt_image))
-    loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim( render_pkg["render"], gt_image))
+    # Loss with safety checks
+    rendered_image = render_pkg["render"]
+    
+    # Clamp rendered image to valid range to prevent extreme values
+    rendered_image = torch.clamp(rendered_image, 0.0, 1.0)
+    gt_image = torch.clamp(gt_image, 0.0, 1.0)
+    
+    Ll1 = l1_loss(rendered_image, gt_image)
+    Ll2 = l2_loss(rendered_image, gt_image).detach()
+    Psnr = psnr(rendered_image, gt_image).mean().double().detach()
+    
+    # Safe SSIM computation
+    ssim_val = ssim(rendered_image, gt_image)
+    if torch.isnan(ssim_val) or torch.isinf(ssim_val):
+        print(f"[WARNING] NaN/Inf SSIM detected, using L1 loss only")
+        ssim_val = torch.tensor(0.0, device=rendered_image.device)
+    
+    loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_val)
+    
     if uw_flag.startswith("HYB"): 
         depth_map = render_pkg["rendered_depth"]
         if opt.lambda_bsest > 0:
-            # binf = render_pkg["binf"]
-            # bs = render_pkg["bs"]
-            loss += opt.lambda_bsest * bs_loss(iteration=iteration, gaussians=gaussians, gt=gt_image, image_depth=depth_map, binf=uw_additions["binf"], bs=uw_additions["bs"], bs_dict=bs_dict, bs_image=bs_image, uw=uw, render_pkg=render_pkg, opt=opt)
-            loss = loss + opt.opacity_reg * torch.abs(gaussians.get_opacity).mean()
-            loss = loss + opt.scale_reg * torch.abs(gaussians.get_scaling).mean()
-            #loss = loss + opt.lambda_bsest *  total_variation_loss(image=render_pkg["render"])
-            # direct color loss
-            # binf (r-,g+,b+)
-            # bs (r+,g-,b-)
-            #direct(r-,g+,b+)
-            # loss = loss + 0.01 *  (F.relu(1*(gaussians._bs[0,1]-gaussians._bs[0,0])) + F.relu(1*(gaussians._bs[0,2]-gaussians._bs[0,0])))
-            # loss = loss + 0.01 *  (F.relu(-1*(gaussians._direct[0,1]-gaussians._direct[0,0])) + F.relu(-1*(gaussians._direct[0,2]-gaussians._direct[0,0])))
+            bs_loss_val = bs_loss(iteration=iteration, gaussians=gaussians, gt=gt_image, image_depth=depth_map, binf=uw_additions["binf"], bs=uw_additions["bs"], bs_dict=bs_dict, bs_image=bs_image, uw=uw, render_pkg=render_pkg, opt=opt)
+            loss += opt.lambda_bsest * bs_loss_val
+            
+            # Regularization terms with safety checks
+            opacity_reg = torch.abs(gaussians.get_opacity).mean()
+            scale_reg = torch.abs(gaussians.get_scaling).mean()
+            
+            # Check for NaN in regularization terms
+            if torch.isnan(opacity_reg) or torch.isinf(opacity_reg):
+                opacity_reg = torch.tensor(0.0, device=rendered_image.device)
+            if torch.isnan(scale_reg) or torch.isinf(scale_reg):
+                scale_reg = torch.tensor(0.0, device=rendered_image.device)
+                
+            if opt.lambda_opacity_reg > 0:
+                loss = loss + opt.lambda_opacity_reg * opacity_reg
+            if opt.lambda_scale_reg > 0:
+                loss = loss + opt.lambda_scale_reg * scale_reg
         
     return loss, Ll1, Ll2, Psnr
 
@@ -83,21 +101,42 @@ def bs_loss(iteration, gaussians, gt, image_depth, binf, bs, bs_dict=None, bs_im
 
     if curr_bs_dict is None or not bool(curr_bs_dict) or \
        np.isnan(curr_bs_dict['Bc_inf']).any() or np.isnan(curr_bs_dict['betac_b']).any(): 
-        return 0  # Small constant instead of 0.0 to avoid zero gradients
+        return torch.tensor(0.0, device=binf.device, requires_grad=True)  # Return tensor that supports gradients
 
     bs_dict = curr_bs_dict
     b_inf_gt = torch.Tensor(bs_dict['Bc_inf']).to(binf.device)
     bs_gt = torch.Tensor(bs_dict['betac_b']).to(bs.device)
+    
+    # Add safety clamping to prevent extreme values
+    eps = 1e-6
+    b_inf_gt = torch.clamp(b_inf_gt, min=eps, max=1.0 - eps)
+    bs_gt = torch.clamp(bs_gt, min=eps, max=1.0 - eps)
+    
     b_inf_gt = b_inf_gt.unsqueeze(0)
     bs_gt = bs_gt.unsqueeze(0)
-    # gaussians._binf.data = b_inf_gt
-    # gaussians._bs.data = bs_gt
-    # return 0
-    # bs_image_cuda = torch.tensor(bs_image).to(render_pkg["rendered_backscattering"].device)
-    # return (1.0 - opt.lambda_dssim) * (1/psnr( render_pkg["rendered_backscattering"], bs_image_cuda)) + opt.lambda_dssim * (1.0 - ssim( render_pkg["rendered_backscattering"], bs_image_cuda))
-    binf_loss = torch.nn.functional.mse_loss(gaussians._binf, b_inf_gt).mean()
-    bs_loss = torch.nn.functional.mse_loss(gaussians._bs, bs_gt).mean()
-    total_loss = 0.7 * binf_loss + 0.3 * bs_loss
+    
+    # Check for NaN/Inf in inputs
+    if torch.isnan(gaussians._binf).any() or torch.isinf(gaussians._binf).any():
+        print(f"[WARNING] NaN/Inf detected in gaussians._binf: {gaussians._binf}")
+        return torch.tensor(0.0, device=binf.device, requires_grad=True)
+        
+    if torch.isnan(gaussians._bs).any() or torch.isinf(gaussians._bs).any():
+        print(f"[WARNING] NaN/Inf detected in gaussians._bs: {gaussians._bs}")
+        return torch.tensor(0.0, device=binf.device, requires_grad=True)
+    
+    # Use safer MSE loss computation with clamping
+    binf_diff = torch.clamp(gaussians._binf - b_inf_gt, min=-10.0, max=10.0)
+    bs_diff = torch.clamp(gaussians._bs - bs_gt, min=-10.0, max=10.0)
+    
+    binf_loss = (binf_diff ** 2).mean()
+    bs_loss_val = (bs_diff ** 2).mean()
+    
+    # Check for NaN in computed losses
+    if torch.isnan(binf_loss) or torch.isinf(binf_loss) or torch.isnan(bs_loss_val) or torch.isinf(bs_loss_val):
+        print(f"[WARNING] NaN/Inf in BS loss computation: binf_loss={binf_loss}, bs_loss={bs_loss_val}")
+        return torch.tensor(0.0, device=binf.device, requires_grad=True)
+    
+    total_loss = 0.7 * binf_loss + 0.3 * bs_loss_val
     return total_loss
 
 

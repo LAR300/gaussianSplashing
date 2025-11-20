@@ -1,0 +1,96 @@
+LoadingParameters:
+  sh_degree: 3
+  source_path: "datasets/SeathruNeRF_dataset/JapaneseGradens-RedSea"
+  model_path: "/output/debug_run"
+  images: "images"
+  initialization_points_option: "pointcloud"  # options: cluster, pointcloud, random
+  resolution: -1
+  underwater_processing: "HYB"  # options: OFF, HYB...
+  removal_using_monocular_depth: false
+  white_background: false
+  data_device: "cuda"
+  densification: "OFF"  # options: OFF, MCMC
+  cap_max: 300000
+  eval: true
+
+PipelineParameters:
+  convert_SHs_python: false
+  compute_cov3D_python: false
+  debug: false
+
+UnderwaterParameters:
+  remove_bs_every: 500
+  exp_range_dl: 0.001
+  exp_range_dh: 0.3
+  exp_range_bl: 0.01
+  exp_range_bh: 0.25
+  binf_range_l: 0.05
+  binf_range_h: 0.5
+
+OptimizationParameters:
+  iterations: 15000
+  position_lr_init: 0.00016
+  position_lr_final: 0.0000016
+  position_lr_delay_mult: 0.01
+  position_lr_max_steps: 30000
+  feature_lr: 0.0025
+  opacity_lr: 0.05
+  scaling_lr: 0.005
+  rotation_lr: 0.001
+  percent_dense: 0.01
+  lambda_dssim: 0.3
+  lambda_bsest: 0.5
+
+  normal_lr: 0.0002
+  lambda_zero_one: 0.001
+  lambda_predicted_normal: 0.2
+  lambda_delta_reg: 0.001
+
+  densification_interval: 100
+  opacity_reset_interval: 3000
+  masking_interval: -1
+  densify_from_iter: 1500
+  densify_until_iter: 15000
+  densify_grad_threshold: 0.0001
+  remove_min_opacity_threshold: 0.05
+  random_background: false
+  noise_lr: 500000.0
+  scale_reg: 0.02
+  opacity_reg: 0.02
+
+  # Densification pruning parameters
+  min_opacity_prune: 0.002
+  large_gaussian_densification_screen_size_threshold: 100.0
+
+  # Near-camera large Gaussian removal parameters
+  prune_near_large_gaussians: false
+  near_camera_distance_threshold: 0.8  # Distance threshold from camera (world units)
+  large_gaussian_screen_size_threshold: 200.0  # Projected radius threshold (pixels)
+  near_large_gaussian_opacity_threshold: 0.98  # Only prune if opacity is very high (confident placement)
+
+  lambda_opacity_reg: 0.0
+  lambda_scale_reg: 0.0
+
+WandbParameters:
+  wb_use_logger: true
+  wb_project: "gaussian_splattingUW"
+  wb_group: "GroupExp1"
+  wb_name: ""
+  wb_dir: "./logs/"
+  wb_resume: null  # allow | must | never | auto | null
+  wb_id: null
+
+GeneralParameters:
+  ip: "0"
+  port: -1
+  debug_from: -1
+  detect_anomaly: false
+  test_iterations: [1, 1000, 3000, 7000, 15000, 20000, 30000, 50000]
+  save_iterations: [75000]
+  quiet: false
+  checkpoint_iterations: []
+  start_checkpoint: null
+  save_for_metrics: false
+  save_video: false
+
+

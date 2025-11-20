@@ -149,6 +149,22 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
             uw_additions["direct"] =  gaussians._direct #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
         loss, Ll1, Ll2, Psnr = loss_func(iteration, gt_image, opt, gaussians, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict, bs_image=curr_bs_image, uw_additions=uw_additions, uw=uw)
+        
+        # NaN detection and handling
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"[WARNING] NaN/Inf loss detected at iteration {iteration}: {loss.item()}")
+            if dataset.underwater_processing.startswith("HYB"):
+                print(f"  - binf: {gaussians._binf}")
+                print(f"  - bs: {gaussians._bs}")  
+                print(f"  - direct: {gaussians._direct}")
+                print(f"  - Rendered image stats: min={render_pkg['render'].min():.6f}, max={render_pkg['render'].max():.6f}, mean={render_pkg['render'].mean():.6f}")
+                if 'rendered_J' in render_pkg:
+                    print(f"  - Rendered J stats: min={render_pkg['rendered_J'].min():.6f}, max={render_pkg['rendered_J'].max():.6f}, mean={render_pkg['rendered_J'].mean():.6f}")
+                if 'rendered_backscattering' in render_pkg:
+                    print(f"  - Rendered backscattering stats: min={render_pkg['rendered_backscattering'].min():.6f}, max={render_pkg['rendered_backscattering'].max():.6f}, mean={render_pkg['rendered_backscattering'].mean():.6f}")
+            # Skip this iteration if loss is NaN/Inf
+            continue
+            
         if dataset.underwater_processing.startswith("HYB"):
             gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_dl, uw.exp_range_dh), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_bl, uw.exp_range_bh),
                                                 uw_additions=uw_additions)
@@ -157,6 +173,17 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
             uw_additions["direct"] =  gaussians._direct #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
         loss.backward()
+        
+        # Gradient clipping to prevent gradient explosion
+        if dataset.underwater_processing.startswith("HYB"):
+            # Clip gradients for underwater parameters to prevent numerical instability
+            max_grad_norm = 5.0
+            if gaussians._binf.grad is not None:
+                torch.nn.utils.clip_grad_norm_([gaussians._binf], max_grad_norm)
+            if gaussians._bs.grad is not None:
+                torch.nn.utils.clip_grad_norm_([gaussians._bs], max_grad_norm)
+            if gaussians._direct.grad is not None:
+                torch.nn.utils.clip_grad_norm_([gaussians._direct], max_grad_norm)
 
         iter_end.record()
 
@@ -228,13 +255,35 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     # Keep track of max radii in image-space for pruning
                     gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
                     gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
+                    
+                    # Prune near-camera large Gaussians BEFORE densification (after max_radii2D update)
+                    if (iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and 
+                        opt.prune_near_large_gaussians and iteration > opt.densify_from_iter + opt.densification_interval):
+                        gaussians.prune_near_large_gaussians(
+                            camera_center=viewpoint_cam.camera_center,
+                            distance_threshold=opt.near_camera_distance_threshold,
+                            screen_size_threshold=opt.large_gaussian_screen_size_threshold,
+                            opacity_threshold=opt.near_large_gaussian_opacity_threshold,
+                            verbose=(iteration % (5 * opt.densification_interval) == 0)  # Log every 5th densification
+                        )
+                    
                     if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                        size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                        gaussians.densify_and_prune_orig(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii)
+                        size_threshold = opt.large_gaussian_densification_screen_size_threshold if iteration > opt.opacity_reset_interval else None
+                        gaussians.densify_and_prune_orig(opt.densify_grad_threshold, opt.min_opacity_prune, scene.cameras_extent, size_threshold, radii)
                         gaussians.prune_nan()
                         
             elif dataset.densification == "MCMC":
                 if iteration < opt.densify_until_iter and iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+                    # Prune near-camera large Gaussians BEFORE MCMC operations (after max_radii2D update)
+                    if (opt.prune_near_large_gaussians and iteration > opt.densify_from_iter + opt.densification_interval):
+                        gaussians.prune_near_large_gaussians(
+                            camera_center=viewpoint_cam.camera_center,
+                            distance_threshold=opt.near_camera_distance_threshold,
+                            screen_size_threshold=opt.large_gaussian_densification_screen_size_threshold,
+                            opacity_threshold=opt.near_large_gaussian_opacity_threshold,
+                            verbose=(iteration % (5 * opt.densification_interval) == 0)  # Log every 5th densification
+                        )
+                    
                     # if iteration % (5*opt.densification_interval) == 0:
                     #     gaussians.prune_MCMC()
                     dead_mask = (gaussians.get_opacity <= opt.remove_min_opacity_threshold).squeeze(-1)

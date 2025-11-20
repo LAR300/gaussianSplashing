@@ -21,56 +21,134 @@ def parameter_fun_Bc_diff2(x, z, Ic):
 
 
 def estimateBackscatter(Ism, zsm, pdark=0.01, intervals_num=25, resized_highet=300):
-    resized_highet = Ism.shape[1]
-    Ism = cv2.resize(Ism, (resized_highet, int(resized_highet / Ism.shape[1] * Ism.shape[0])))
+    """
+    Estimate backscatter parameters (B_infinity and betac_b) for underwater images.
+    
+    Follows Algorithm 1 from the paper. This function estimates the backscatter
+    coefficients by analyzing the relationship between light intensity and depth
+    using curve fitting on dark pixel values.
+    
+    Args:
+        Ism: Input underwater image (HxWx3)
+        zsm: Corresponding depth map (HxW)
+        pdark: Percentage of darkest pixels to use (default: 0.01)
+        intervals_num: Number of depth intervals (default: 25)
+        resized_highet: Target height for resizing (default: 300)
+    
+    Returns:
+        dict: {'Bc_inf': B_infinity coefficients (RGB), 
+               'betac_b': attenuation coefficients (RGB), 
+               'pdark': dark pixel percentage used}
+    """
+    width = Ism.shape[1]
+    height = Ism.shape[0]
+    new_width = resized_highet
+    new_height = int(resized_highet / width * height)
+
+    Ism = cv2.resize(Ism, (new_width, new_height))
     Ism[Ism < 0] = 0
-    zsm = cv2.resize(zsm, (resized_highet, int(resized_highet / zsm.shape[1] * zsm.shape[0])))
+    zsm = cv2.resize(zsm, (new_width, new_height))
     zsm[zsm < 0] = 0
     darkZ, Bc = getBackscatterByCurveFittingMultipleImages(Ism, zsm, pdark)
     ints = np.linspace(np.min(darkZ), np.max(darkZ), intervals_num) # intervals of depth values
     min_values_depth = [[],[],[]]
     minvals = [[],[],[]] # minvalues for each interval
+    
+    # Process each color channel as described in Algorithm 1
     for k in range(3):
         for i in range(len(ints) - 1):
             ind = (darkZ > ints[i]) & (darkZ <= ints[i + 1])
+            
+            # Check if valid data exists in this interval
             if np.sum(ind) == 0 or np.sum(np.isnan(Bc[ind, k])) == len(Bc[ind, k]):
                 continue
             else:
-                minvals[k].append(np.min(Bc[ind, k]))
-                #minvals[k].append(ints[i]))
+                # Find minimum backscatter value in this interval
+                min_bc = np.min(Bc[ind, k])
+                minvals[k].append(min_bc)
+                
+                # Get corresponding depth value for the minimum backscatter
                 index_min = np.argmin(Bc[ind, k], axis=0)
-                min_values_depth[k].append(darkZ[ind][index_min])
+                corresponding_depth = darkZ[ind][index_min]
+                min_values_depth[k].append(corresponding_depth)
     
-    #thisz = ints[:-1] # all the bins
-    #exclude = np.isnan(minvals[:, 0]) | np.isnan(minvals[:, 1]) |  np.isnan(minvals[:, 2])
-    #thisz = thisz[~exclude] # excluding the nan or inf values
-    #minvals = minvals[~exclude, :]
-    #thisz = np.concatenate([[0], thisz])
-    #minvals = np.vstack([[0, 0, 0], minvals])
-    scale = 1
-    # x0 = [np.random.rand()*scale, np.random.rand()*scale]
-    # lb = [0, 0]
-    # ub = [scale, scale]
-    b1_bounds = (0, scale)  # Example bounds for b1
-    b2_bounds = (0, scale)   # Example bounds for b2
+    # Ensure we have sufficient data for each channel
+    for k in range(3):
+        if len(minvals[k]) == 0:
+            print(f"Warning: No valid data found for color channel {k}")
+            # Add a default point to prevent curve fitting failure
+            min_values_depth[k] = [1.0]  # Default depth
+            minvals[k] = [0.05]  # Default backscatter value
+    
+    # Set appropriate bounds for underwater backscatter coefficients
+    # B_infinity typically ranges from 0.01 to 1.0 for underwater scenarios
+    # betac_b typically ranges from 0.1 to 2.0 for underwater attenuation
+    b_inf_bounds = (0.01, 1.0)   # Bounds for B_infinity
+    betac_b_bounds = (0.1, 2.0)  # Bounds for betac_b (attenuation coefficient)
+    
     out = np.zeros((2, 3))
     def model_func(z, b_inf, bcb):
         return b_inf * (1 - np.exp(-bcb * z))
     
     for k in range(3):
-        f = lambda x: parameter_fun_Bc_diff2(x, min_values_depth[k][3:-3], minvals[k][3:-3])
-        #problem = {'fun': f, 'x0': x0, 'bounds': (lb, ub)}
-        #result = minimize(**problem)
-        #result = least_squares(f, x0, bounds=[lb, ub])
-        params, covariance = curve_fit(model_func, xdata=min_values_depth[k], ydata=minvals[k], bounds=([b1_bounds[0], b2_bounds[0]], [b1_bounds[1], b2_bounds[1]]))
-        #out[:, k] = result.x
-        out[:, k] = params
+        # Skip first 3 and last 3 values to avoid edge effects as suggested in the algorithm
+        if len(min_values_depth[k]) > 6:  # Ensure we have enough data points
+            depth_data = min_values_depth[k][3:-3]
+            minval_data = minvals[k][3:-3]
+        else:
+            depth_data = min_values_depth[k]
+            minval_data = minvals[k]
+        
+        if len(depth_data) < 3:  # Need minimum points for curve fitting
+            # Use default values if insufficient data
+            out[0, k] = 0.1  # Default B_infinity
+            out[1, k] = 0.5  # Default betac_b
+            print(f"Warning: Insufficient data for channel {k}, using default values")
+            continue
+            
+        try:
+            params, covariance = curve_fit(
+                model_func, 
+                xdata=depth_data, 
+                ydata=minval_data, 
+                bounds=([b_inf_bounds[0], betac_b_bounds[0]], 
+                       [b_inf_bounds[1], betac_b_bounds[1]]),
+                maxfev=5000  # Increase max function evaluations for better convergence
+            )
+            out[:, k] = params
+        except Exception as e:
+            print(f"Curve fitting failed for channel {k}: {e}")
+            # Use default values if curve fitting fails
+            out[0, k] = 0.1  # Default B_infinity
+            out[1, k] = 0.5  # Default betac_b
     Bc_inf = out[0, :]
     bcb = out[1, :]
+    
+    # Validate estimated parameters
+    print(f"Estimated B_infinity (RGB): [{Bc_inf[0]:.3f}, {Bc_inf[1]:.3f}, {Bc_inf[2]:.3f}]")
+    print(f"Estimated betac_b (RGB): [{bcb[0]:.3f}, {bcb[1]:.3f}, {bcb[2]:.3f}]")
+    
     params = {'Bc_inf': np.array(Bc_inf), 'betac_b': np.array(bcb), 'pdark': pdark}
     return params # RGB
 
 def getBackscatterByCurveFittingMultipleImages(I, dm, pdark=0.01, rhoflag=0, edges_num=10):
+    """
+    Extract dark pixels and their backscatter values from multiple depth ranges.
+    
+    Follows Algorithm 2 from the paper. This function identifies the darkest pixels
+    in different depth clusters and extracts their backscatter values for curve fitting.
+    
+    Args:
+        I: Input image (HxWx3)
+        dm: Depth map (HxW)
+        pdark: Percentage of darkest pixels (default: 0.01)
+        rhoflag: Whether to apply reflectance normalization (default: 0)
+        edges_num: Number of depth edges for clustering (default: 10)
+    
+    Returns:
+        tuple: (darkZ, Bc) where darkZ is depths of dark pixels, 
+               Bc is their backscatter values
+    """
     if rhoflag:
         sigmaVal = 1 * (max(I.shape) / 2)
         Ec = 2 * gaussian_filter(I, sigma=sigmaVal)

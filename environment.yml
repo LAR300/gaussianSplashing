@@ -1,4 +1,4 @@
-name: gaussian_splashing
+name: gaussianSplashing_env
 channels:
   - pytorch
   - conda-forge
@@ -6,7 +6,7 @@ channels:
   - nvidia
 dependencies:
   - plyfile=0.8.1
-  - python=3.8
+  - python=3.10
   - pip>=22.3.1
   - tqdm
   - pip:
@@ -19,6 +19,7 @@ dependencies:
     - scikit-learn
     - pdc-dp-means
     - opencv-python
+    - pyyaml
 # post_build:
 #   - pip install --upgrade pip
 #   - pip install submodules/diff-gaussian-rasterization_depth
