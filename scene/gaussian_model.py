@@ -442,36 +442,54 @@ class GaussianModel:
         # Apply constraints with channel-specific clamping for underwater scenarios
         # For underwater: Red < Green < Blue (blue light penetrates deeper)
         
-        # B_infinity: Blue should be higher than Red
-        # self._binf.data[0, 0].clamp_(binf_range[0], binf_range[1] * 0.7)      # Red: lower limit
-        # self._binf.data[0, 1].clamp_(binf_range[0], binf_range[1] * 0.85)     # Green: medium  
-        # self._binf.data[0, 2].clamp_(binf_range[0], binf_range[1])            # Blue: full range
+        # 1. Enforce Ranges first
         self._binf.data.clamp_(binf_range[0], binf_range[1])
-        
-        # Backscatter: Blue should dominate underwater
-        # self._bs.data[0, 0].clamp_(bs_range[0], bs_range[1] * 0.6)            # Red: lower limit
-        # self._bs.data[0, 1].clamp_(bs_range[0], bs_range[1] * 0.8)            # Green: medium
-        # self._bs.data[0, 2].clamp_(bs_range[0], bs_range[1])                  # Blue: full range
         self._bs.data.clamp_(bs_range[0], bs_range[1])
+        self._direct.data.clamp_(direct_range[0], direct_range[1])
         
-        # Direct transmission: uniform constraints (less critical for color)
-        self._direct.data.clamp_(direct_range[0], direct_range[1]) 
-        # clamped = {}
-        # clamped['binf'] = torch.clamp(uw_additions['binf'], min=binf_range[0], max=binf_range[1])
-        # clamped['bs'] = torch.clamp(uw_additions['bs'], min=bs_range[0], max=bs_range[1])
-        # clamped['direct'] = torch.clamp(uw_additions['direct'], min=direct_range[0], max=direct_range[1])
-        # if torch.any(clamped['binf'] != uw_additions['binf']):
-        #     adjustment_factor = torch.min(clamped['binf'] / ( uw_additions['binf'] + 1e-1))
-        #     self._featuresbinf_dc.data = self._featuresbinf_dc.data * adjustment_factor
-        #     self._featuresbinf_rest.data = self._featuresbinf_rest.data * adjustment_factor
-        # if torch.any(clamped['bs'] != uw_additions['bs']):
-        #     adjustment_factor = torch.min(clamped['bs'] / ( uw_additions['bs'] + 1e-1))
-        #     self._featuresbs_dc.data = self._featuresbs_dc.data * adjustment_factor
-        #     self._featuresbs_rest.data = self._featuresbs_rest.data * adjustment_factor
-        # if torch.any(clamped['direct'] != uw_additions['direct']):
-        #     adjustment_factor = torch.min(clamped['direct'] / ( uw_additions['direct'] + 1e-1))
-        #     self._featuresdirect_dc.data = self._featuresdirect_dc.data * adjustment_factor
-        #     self._featuresdirect_rest.data = self._featuresdirect_rest.data * adjustment_factor
+        # 2. Enforce Blue Dominance: Blue > Green > Red
+        # Relaxed constraint: allow some overlap but generally enforce order often seen in clear water
+        # B_inf (Backround/Veiling Light)
+        # Force Red <= Green
+        self._binf.data[0, 0] = torch.min(self._binf.data[0, 0], self._binf.data[0, 1])
+        # Force Green <= Blue
+        self._binf.data[0, 1] = torch.min(self._binf.data[0, 1], self._binf.data[0, 2])
+        
+        # Bs (Backscatter Coefficient) - similar logic
+        # Force Red <= Green
+        self._bs.data[0, 0] = torch.min(self._bs.data[0, 0], self._bs.data[0, 1])
+        # Force Green <= Blue
+        self._bs.data[0, 1] = torch.min(self._bs.data[0, 1], self._bs.data[0, 2])
+        
+        # 3. Synchronize DC Features (Rendering) with Constrained Parameters (Loss)
+        # The renderer uses SH coefficients. The 0-th coefficient (DC) controls the base color.
+        # We must sync them so the renderer sees the constrained values.
+        
+        # For SH DC component: value = 0.28209 * RGB_val. So RGB_val = DC / 0.28209
+        # But here the code seems to init featuresuw_binf[:, :, 0] = binf_init directly in __init__
+        # And in forward.cu it calls computeColorFromSH_UW.
+        # Let's check __init__ again... Yes: featuresuw_binf[:, :, 0] = binf_init
+        # Wait, usually SH features are raw. 
+        # In __init__: features[:, :3, 0 ] = fused_color 
+        # But RGB2SH is usually applied.
+        # However, for these custom params, let's look at rasterizer_points.cu/forward.cu
+        # computeColorFromSH_UW uses standard SH constants. SH_C0 = 0.28209479177387814
+        # So to get RGB value 'x', the DC coefficient should be 'x / SH_C0'.
+        
+        SH_C0 = 0.28209479177387814
+        
+        # Update the DC component of the SH features to match the constrained RGB values
+        # We need to reshape/transpose to match the parameter shape: (1, 1, 3) -> (1, 3) 
+        # _features*_dc shape is (1, 1, 3) which is (Points, SH_Coeffs, Channels) transposed?
+        # In __init__: self._featuresbinf_dc = nn.Parameter(featuresuw_binf[:,:,0:1].transpose(1, 2)...)
+        # orig featuresuw_binf is (1, 3, 16). 0:1 is DC. 
+        # transpose(1,2) makes it (1, 1, 3).
+        # So:
+        
+        self._featuresbinf_dc.data.copy_(self._binf.data.view(1, 1, 3) / SH_C0)
+        self._featuresbs_dc.data.copy_(self._bs.data.view(1, 1, 3) / SH_C0)
+        self._featuresdirect_dc.data.copy_(self._direct.data.view(1, 1, 3) / SH_C0)
+
         
     
     def reset_hyb(self):

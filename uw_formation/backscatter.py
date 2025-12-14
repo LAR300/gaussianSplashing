@@ -81,10 +81,10 @@ def estimateBackscatter(Ism, zsm, pdark=0.01, intervals_num=25, resized_highet=3
             minvals[k] = [0.05]  # Default backscatter value
     
     # Set appropriate bounds for underwater backscatter coefficients
-    # B_infinity typically ranges from 0.01 to 1.0 for underwater scenarios
-    # betac_b typically ranges from 0.1 to 2.0 for underwater attenuation
-    b_inf_bounds = (0.01, 1.0)   # Bounds for B_infinity
-    betac_b_bounds = (0.1, 2.0)  # Bounds for betac_b (attenuation coefficient)
+    # B_infinity limits: Red(0.5 max), Green(0.8 max), Blue(1.0 max) to ensure Blue dominance
+    # betac_b limits: Red(0.1-5.0), Green(0.1-5.0), Blue(0.1-2.0) - Blue attenuates less
+    
+    # We will set bounds dynamically per channel inside the loop
     
     out = np.zeros((2, 3))
     def model_func(z, b_inf, bcb):
@@ -106,13 +106,23 @@ def estimateBackscatter(Ism, zsm, pdark=0.01, intervals_num=25, resized_highet=3
             print(f"Warning: Insufficient data for channel {k}, using default values")
             continue
             
+        # Channel specific bounds
+        if k == 0: # Red
+             # Red disappears quickly, so Bc_inf should be small, attenuation high
+             curr_bounds = ([0.01, 0.1], [0.5, 5.0])
+        elif k == 1: # Green
+             # Green is providing some visibility
+             curr_bounds = ([0.01, 0.1], [0.8, 3.0])
+        else: # Blue
+             # Blue dominates
+             curr_bounds = ([0.2, 0.1], [1.0, 2.0])
+             
         try:
             params, covariance = curve_fit(
                 model_func, 
                 xdata=depth_data, 
                 ydata=minval_data, 
-                bounds=([b_inf_bounds[0], betac_b_bounds[0]], 
-                       [b_inf_bounds[1], betac_b_bounds[1]]),
+                bounds=curr_bounds,
                 maxfev=5000  # Increase max function evaluations for better convergence
             )
             out[:, k] = params

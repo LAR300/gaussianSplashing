@@ -85,7 +85,7 @@ GeneralParameters:
   port: -1
   debug_from: -1
   detect_anomaly: false
-  test_iterations: [1, 1000, 3000, 7000, 15000, 20000, 30000, 50000]
+  test_iterations: [1, 1000, 3000, 4000, 5000, 15000, 20000, 30000, 50000]
   save_iterations: [75000]
   quiet: false
   checkpoint_iterations: []
