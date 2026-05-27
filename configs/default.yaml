@@ -9,8 +9,8 @@ LoadingParameters:
   removal_using_monocular_depth: false
   white_background: false
   data_device: "cuda"
-  densification: "OFF"  # options: OFF, MCMC
-  cap_max: 300000
+  densification: "MCMC"  # options: OFF, MCMC
+  cap_max: 500000
   eval: true
 
 PipelineParameters:
@@ -86,11 +86,9 @@ GeneralParameters:
   debug_from: -1
   detect_anomaly: false
   test_iterations: [1, 1000, 3000, 4000, 5000, 15000, 20000, 30000, 50000]
-  save_iterations: [75000]
+  save_iterations: [15000]
   quiet: false
   checkpoint_iterations: []
   start_checkpoint: null
   save_for_metrics: false
   save_video: false
-
-

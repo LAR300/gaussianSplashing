@@ -3,7 +3,7 @@
 # GRAPHDECO research group, https://team.inria.fr/graphdeco
 # All rights reserved.
 #
-# This software is free for non-commercial, research and evaluation use 
+# This software is free for non-commercial, research and evaluation use
 # under the terms of the LICENSE.md file.
 #
 # For inquiries contact  george.drettakis@inria.fr
@@ -44,7 +44,7 @@ def train_sweep(namespace_dict=None, sweep_train_flag=True):
                 config=namespace_dict,
             )
         namespace_dict = run_sweep.config
-        
+
     cfg_dot_dic = NestedDict(namespace_dict)
     if not sweep_train_flag:
         print("Optimizing " + cfg_dot_dic.LoadingParameters.model_path)
@@ -66,12 +66,12 @@ def train_sweep(namespace_dict=None, sweep_train_flag=True):
     # All done
     print("Training complete.")
     print(f"Training execution time: {int(training_miutes)} minutes {training_seconds:.2f} seconds")
-    
+
 
 
 
 def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_flag=False):
-    
+
     start_training = time.time()
     first_iter = 0
     prepare_output(dataset)
@@ -97,7 +97,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
     curr_bs_image = None
     uw_additions = {}
     clone_split_range_iter = 0
-    for iteration in range(first_iter, opt.iterations + 1):        
+    for iteration in range(first_iter, opt.iterations + 1):
         if cfg_dot_dic.GeneralParameters.ip != "0" and cfg_dot_dic.GeneralParameters.port != -1:
             if network_gui.conn == None:
                 network_gui.try_connect()
@@ -149,13 +149,13 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
             uw_additions["direct"] =  gaussians._direct #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
         loss, Ll1, Ll2, Psnr = loss_func(iteration, gt_image, opt, gaussians, uw_flag=dataset.underwater_processing, render_pkg = render_pkg, bs_dict=curr_bs_dict, bs_image=curr_bs_image, uw_additions=uw_additions, uw=uw)
-        
+
         # NaN detection and handling
         if torch.isnan(loss) or torch.isinf(loss):
             print(f"[WARNING] NaN/Inf loss detected at iteration {iteration}: {loss.item()}")
             if dataset.underwater_processing.startswith("HYB"):
                 print(f"  - binf: {gaussians._binf}")
-                print(f"  - bs: {gaussians._bs}")  
+                print(f"  - bs: {gaussians._bs}")
                 print(f"  - direct: {gaussians._direct}")
                 print(f"  - Rendered image stats: min={render_pkg['render'].min():.6f}, max={render_pkg['render'].max():.6f}, mean={render_pkg['render'].mean():.6f}")
                 if 'rendered_J' in render_pkg:
@@ -164,7 +164,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     print(f"  - Rendered backscattering stats: min={render_pkg['rendered_backscattering'].min():.6f}, max={render_pkg['rendered_backscattering'].max():.6f}, mean={render_pkg['rendered_backscattering'].mean():.6f}")
             # Skip this iteration if loss is NaN/Inf
             continue
-            
+
         if dataset.underwater_processing.startswith("HYB"):
             gaussians.enforce_constraints_hyb(direct_range=(uw.exp_range_dl, uw.exp_range_dh), binf_range=(uw.binf_range_l, uw.binf_range_h), bs_range=(uw.exp_range_bl, uw.exp_range_bh),
                                                 uw_additions=uw_additions)
@@ -173,7 +173,7 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             uw_additions["bs"] = gaussians._bs  #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresbs.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
             uw_additions["direct"] =  gaussians._direct #eval_sh(gaussians.active_sh_degree, gaussians.get_featuresdirect.transpose(1, 2).view(-1, 3, (gaussians.max_sh_degree+1)**2), viewpoint_cam.camera_front_dir_in_world)
         loss.backward()
-        
+
         # Gradient clipping to prevent gradient explosion
         if dataset.underwater_processing.startswith("HYB"):
             # Clip gradients for underwater parameters to prevent numerical instability
@@ -224,8 +224,8 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                         rendering_Bs = scene.normalize_image(rendering_Bs)
                         scene.scene_save_image(rendering_J, viewpoint_cam.image_name, os.path.join(set_name,"rendered_J"))
                         scene.scene_save_image(rendering_Bs, viewpoint_cam.image_name, os.path.join(set_name,"rendered_backscattering"))
-                    
-                fps = sum(execution_time_lst) / len(execution_time_lst) 
+
+                fps = sum(execution_time_lst) / len(execution_time_lst)
                 print(f"Execution (render {set_name}) time:", fps, "seconds")
                 scene.scene_save_fps(f"Frame Per Second (render {set_name}): " + str(int(1/fps)) + " or " + str(fps) + " seconds per frame")
             if cfg_dot_dic.GeneralParameters.save_for_metrics and iteration == opt.iterations:
@@ -233,11 +233,11 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                 save_for_metrics(set_name='train', flag_str=dataset.underwater_processing)
                 save_for_metrics(set_name='eval', flag_str=dataset.underwater_processing)
                 evaluate(cfg_dot_dic.LoadingParameters.model_path[2:])
-                    
-                
 
 
-            
+
+
+
             training_report(iteration, Ll1, loss, l1_loss,
                             Ll2, l2_loss, Psnr,
                             iter_start.elapsed_time(iter_end), cfg_dot_dic.GeneralParameters.test_iterations, scene, render, [pipe, bg, training_rep_uw],
@@ -245,8 +245,8 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
             if (iteration in cfg_dot_dic.GeneralParameters.save_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 print("\n[ITER {}] Saving was denied by the user".format(iteration))
-                #scene.save(iteration)
-        
+                scene.save(iteration)
+
             # Densification
             if iteration % opt.opacity_reset_interval == 0:# or (dataset.white_background and iteration == opt.densify_from_iter):
                             gaussians.reset_opacity()
@@ -255,9 +255,9 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                     # Keep track of max radii in image-space for pruning
                     gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
                     gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
-                    
+
                     # Prune near-camera large Gaussians BEFORE densification (after max_radii2D update)
-                    if (iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and 
+                    if (iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 and
                         opt.prune_near_large_gaussians and iteration > opt.densify_from_iter + opt.densification_interval):
                         gaussians.prune_near_large_gaussians(
                             camera_center=viewpoint_cam.camera_center,
@@ -266,12 +266,12 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                             opacity_threshold=opt.near_large_gaussian_opacity_threshold,
                             verbose=(iteration % (5 * opt.densification_interval) == 0)  # Log every 5th densification
                         )
-                    
+
                     if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                         size_threshold = opt.large_gaussian_densification_screen_size_threshold if iteration > opt.opacity_reset_interval else None
                         gaussians.densify_and_prune_orig(opt.densify_grad_threshold, opt.min_opacity_prune, scene.cameras_extent, size_threshold, radii)
                         gaussians.prune_nan()
-                        
+
             elif dataset.densification == "MCMC":
                 if iteration < opt.densify_until_iter and iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     # Prune near-camera large Gaussians BEFORE MCMC operations (after max_radii2D update)
@@ -283,20 +283,20 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                             opacity_threshold=opt.near_large_gaussian_opacity_threshold,
                             verbose=(iteration % (5 * opt.densification_interval) == 0)  # Log every 5th densification
                         )
-                    
+
                     # if iteration % (5*opt.densification_interval) == 0:
                     #     gaussians.prune_MCMC()
                     dead_mask = (gaussians.get_opacity <= opt.remove_min_opacity_threshold).squeeze(-1)
                     gaussians.relocate_gs(dead_mask=dead_mask)
                     gaussians.add_new_gs(cap_max=args.cap_max)
-        
-                        
-                
+
+
+
             if opt.masking_interval != -1 and (iteration % opt.masking_interval) == 0:
                 gaussians.prune_by_maskingBG(scene.getTrainCameras())
-                
-            
-                
+
+
+
             # Optimizer step
             if iteration <= opt.iterations:
                 gaussians.optimizer.step()
@@ -307,23 +307,23 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
 
                     def op_sigmoid(x, k=100, x0=0.995):
                         return 1 / (1 + torch.exp(-k * (x - x0)))
-                    
+
                     noise = torch.randn_like(gaussians._xyz) * (op_sigmoid(1- gaussians.get_opacity))*args.noise_lr*xyz_lr
                     noise = torch.bmm(actual_covariance, noise.unsqueeze(-1)).squeeze(-1)
                     gaussians._xyz.add_(noise)
-                    
-                
+
+
 
             if (iteration in cfg_dot_dic.GeneralParameters.checkpoint_iterations and not sweep_train_flag):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
-            
-            
-    
+
+
+
     end_training = time.time()
     elapsed_training_time = end_training - start_training
     minutes, seconds = divmod(elapsed_training_time, 60)
-    
+
     prepare_output_end(cfg_dot_dic, minutes, seconds, sweep_train_flag)
     if wandb.run is not None:
         wandb.finish(exit_code=0)
@@ -331,15 +331,15 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
         print("Creating video set...")
         with torch.no_grad():
             create_video_set(scene, gaussians, pipe, background, dataset.underwater_processing, save_str="all", flag_str=dataset.underwater_processing)
-    
-    
+
+
     return minutes, seconds
 
-def prepare_output(dataset):           
+def prepare_output(dataset):
     # Set up output folder
     print("Output folder: {}".format(dataset.model_path))
     os.makedirs(dataset.model_path, exist_ok = True)
-    
+
 def prepare_output_end(cfg_dot_dic, minutes, seconds, sweep_train_flag=False):
     cfg_dot_dic['TrainingTime'] = {"minutes": minutes, "seconds": seconds}
     if not sweep_train_flag:
@@ -360,16 +360,16 @@ def training_report(iteration, Ll1, loss, l1_loss,
     # Report test and samples of training set
     if iteration in testing_iterations:
         torch.cuda.empty_cache()
-        validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()}, 
+        validation_configs = ({'name': 'test', 'cameras' : scene.getTestCameras()},
                               {'name': 'train', 'cameras' : [scene.getTrainCameras()[idx % len(scene.getTrainCameras())] for idx in range(0, 30, 4)]})
 
         for config in validation_configs:
-            
+
             if config['cameras'] and len(config['cameras']) > 0:
                 l1_test = 0.0
                 l2_test = 0.0
                 psnr_test = 0.0
-                
+
                 im_test_flag = True if config['name'] == "test" else False # im_test_flag = True if config['name'] == "test" else False
                 for idx, viewpoint in enumerate(config['cameras']):
                     render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs, im_test_flag=im_test_flag)
@@ -380,7 +380,7 @@ def training_report(iteration, Ll1, loss, l1_loss,
                         depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy().squeeze(axis=0)
                     except:
                         depth_map_unnormalize = render_pkg["rendered_depth"].detach().cpu().numpy()
-                    
+
                     if uw_tuple[-1]: #removal_using_monocular_depth
                             if viewpoint.image_depth_monocular is None:
                                 depth_map_unnormalize = depth_estimation(viewpoint.original_image.cpu().numpy())
@@ -392,14 +392,14 @@ def training_report(iteration, Ll1, loss, l1_loss,
                         rendered_backscattering = scene.normalize_image(render_pkg["rendered_backscattering"])
                         rendered_J = scene.normalize_image(render_pkg["rendered_J"])
                         # rendered_backscattering = torch.clamp(render_pkg["rendered_backscattering"], 0.0, 1.0)
-                        # rendered_J = torch.clamp(render_pkg["rendered_J"], 0.0, 1.0)     
+                        # rendered_J = torch.clamp(render_pkg["rendered_J"], 0.0, 1.0)
                     l1_curr = l1_loss(image, gt_image).mean().double()
                     l1_test += l1_curr
                     l2_curr = l2_loss(image, gt_image).mean().double()
                     l2_test += l2_curr
                     psnr_curr = psnr(image, gt_image).mean().double()
                     psnr_test += psnr_curr
-    
+
                     if wandb.run is not None and (idx < 8):
                         def torch2pil(torch_image):
                             tr = torchvision.transforms.ToPILImage()
@@ -407,7 +407,7 @@ def training_report(iteration, Ll1, loss, l1_loss,
                         def wb_torch2np(torch_image):
                             rgb_image = torch_image.squeeze(0).detach().cpu().numpy()
                             if rgb_image.shape[0] in [1,2,3]:
-                                rgb_image = np.transpose(rgb_image, (1, 2, 0)) # C*H*W -> H*W*C 
+                                rgb_image = np.transpose(rgb_image, (1, 2, 0)) # C*H*W -> H*W*C
                             return rgb_image#bgr_image[..., ::-1] # Convert BGR (CV format) to RGB (WB format)
                         round_num = 5
                         wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered": wandb.Image(wb_torch2np(image[None]), caption=f'l1 = {round(float(l1_curr),round_num)},  psnr = {round(float(psnr_curr),round_num)}')}, step=iteration)
@@ -429,9 +429,9 @@ def training_report(iteration, Ll1, loss, l1_loss,
                             direct0: {round(float(bd_values[0]),round_num)}\n direct1: {round(float(bd_values[1]),round_num)}\n direct2: {round(float(bd_values[2]),round_num)}'
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_J": wandb.Image(wb_torch2np(rendered_J[None]), caption=rendered_J_caption)}, step=iteration)
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/rendered_backscattering": wandb.Image(wb_torch2np(rendered_backscattering[None]), caption=f'rendered_backscattering')}, step=iteration)
-                            
-                            
-                            
+
+
+
                             # wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/Bs_histogram": wandb.Histogram(uw_tuple[2]["bs"].detach().cpu()),
                             #                     config['name'] + f"_view/image_{viewpoint.image_name}/Binf_histogram": wandb.Histogram(uw_tuple[2]["binf"].detach().cpu()),
                             #                     config['name'] + f"_view/image_{viewpoint.image_name}/Bd_histogram": wandb.Histogram(uw_tuple[2]["direct"].detach().cpu())
@@ -440,39 +440,39 @@ def training_report(iteration, Ll1, loss, l1_loss,
                             # if idx == 0 and config['name'] == "train" :
                             #     save_backscatter_plot(render_pkg["rendered_depth"], render_pkg["rendered_backscattering"], str_name=config['name'] + f"_view/image_{viewpoint.image_name}/bc_plot",
                             #                         wandb=wandb, iteration=iteration)
-        
+
 
                         if iteration == testing_iterations[0]:
                             wandb.run.log(data={config['name'] + f"_view/image_{viewpoint.image_name}/ground-truth": wandb.Image(wb_torch2np(gt_image[None]), caption=f'gt')}, step=iteration)
-                            
 
-                    
+
+
                 psnr_test /= len(config['cameras'])
-                l1_test /= len(config['cameras'])          
+                l1_test /= len(config['cameras'])
                 print("\n[ITER {}] Evaluating {}: L1 {} L2 {} PSNR {}".format(iteration, config['name'], l1_test, l2_test, psnr_test))
                 if wandb.run is not None:
                     wandb.run.log(data={config['name'] + '/loss_viewpoint - l1_loss': l1_test,
                                         config['name'] + '/loss_viewpoint - l2_loss': l2_test,
                                         config['name'] + '/loss_viewpoint - psnr': psnr_test},step=iteration)
-                    
+
 
             if wandb.run is not None:
                 wandb.run.log(data={"scene/opacity_histogram": wandb.Histogram(scene.gaussians.get_opacity.detach().cpu()), 'total_points': scene.gaussians.get_xyz.shape[0]},step= iteration)
-            
+
             if curr_bs_dict is not None and bool(curr_bs_dict):
                 wandb.run.log(data={"underwater/backscattering_data/Bc_inf": curr_bs_dict['Bc_inf'].astype("float32"),
                                    "underwater/backscattering_data/beta_b": curr_bs_dict['betac_b'].astype("float32"),
                                     "underwater/backscattering_data/pdark": curr_bs_dict['pdark']},step= iteration)
         torch.cuda.empty_cache()
-        
+
 def organize_logger(cfg_args, action_groups):
     namespace_dict = {}
     for group in action_groups:
         group_dict = {action.dest: getattr(cfg_args, action.dest, None) for action in group._group_actions}
         namespace_dict[group.title.replace(' ', '')] = group_dict
-    
+
     #namespace_dict["TrainingTime"] = {"minutes": 0, "seconds": 0} # updated when training is finished
-    
+
     #cfg_dot_dic = NestedDict(namespace_dict)
 
     wb_resume, wb_use_logger, wb_project, wb_group, wb_dir, wb_id, next_filename, new_run = logger_aux(namespace_dict)
@@ -485,8 +485,8 @@ def organize_logger(cfg_args, action_groups):
                 group=wb_group,
                 name=next_filename,
                 dir=wb_dir,
-                resume=wb_resume, 
-                id =wb_id,  
+                resume=wb_resume,
+                id =wb_id,
                 config=namespace_dict,
             )
         else:
@@ -496,10 +496,10 @@ def organize_logger(cfg_args, action_groups):
                 name=namespace_dict["WandbParameters"]["wb_name"],
                 id= wb_id,
                 resume=wb_resume,
-                dir=wb_dir, 
+                dir=wb_dir,
                 config=namespace_dict,
             )
-        
+
     return wandb.config if wb_use_logger else namespace_dict
 
 def logger_aux(namespace_dict):
@@ -513,7 +513,7 @@ def logger_aux(namespace_dict):
     mcmc_mode = namespace_dict["LoadingParameters"]["densification"]
     source_path = namespace_dict["LoadingParameters"]["source_path"]
     iteration = namespace_dict["OptimizationParameters"]["iterations"]
-    
+
     namespace_dict["WandbParameters"]["wb_name"] = namespace_dict["WandbParameters"]["wb_name"] + "_" + os.path.splitext(os.path.normpath(source_path).split(os.path.sep)[-1])[0] # base_name_without_extension
     wb_name = namespace_dict["WandbParameters"]["wb_name"]
     wb_group = wb_group + "_" + f"MCMode_{mcmc_mode}" + "_" + f"uw_{underwater_processing}"
@@ -538,9 +538,9 @@ def logger_aux(namespace_dict):
         namespace_dict["LoadingParameters"]["model_path"] = os.path.join(folder_path ,next_filename)
         new_run=True
     return wb_resume,wb_use_logger,wb_project,wb_group,wb_dir,wb_id,next_filename,new_run
-        
-        
-    
+
+
+
 if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Training script parameters")
@@ -557,8 +557,8 @@ if __name__ == "__main__":
         args.save_iterations.append(args.iterations)
     namespace_dict = organize_logger(cfg_args=args, action_groups=parser._action_groups)
 
-    
+
     train_sweep(namespace_dict, sweep_train_flag=False)
-    
-    
+
+
     exit(code=0)
