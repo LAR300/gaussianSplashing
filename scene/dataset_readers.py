@@ -165,6 +165,21 @@ def readColmapSceneInfo(path, images, eval, llffhold=8):
         eval_idx = [0, 8, 16, 24, 32, 40, 48] # IUITable
     else:
         known_scene_flag = False
+    # BANCO DE METODOS NEURAIS (NEURAL_BENCHMARK 4.3): a divisao tem de ser a
+    # MESMA em todos os metodos, senao cada um treina com as vistas que o outro
+    # reteve e o A/B compara conjuntos diferentes. O `idx % 8` daqui e o
+    # `eval_interval` do nerfstudio davam 3 vistas em comum de 14.
+    # Sem a variavel, o comportamento fica o original.
+    _fixa = os.environ.get("BENCH_EVAL_VIEWS")
+    if _fixa and os.path.isfile(_fixa):
+        import json as _json
+        with open(_fixa) as _f:
+            _ev = set(_json.load(_f)["eval"])
+        eval_idx = [i for i, c in enumerate(cam_infos)
+                    if os.path.basename(c.image_name) in _ev
+                    or os.path.basename(c.image_name) + ".png" in _ev]
+        known_scene_flag = True
+        print(f"[banco] divisao fixa de {_fixa}: {len(eval_idx)} vistas retidas")
     # complete
     all_idx = range(len(cam_infos))
     if eval:
