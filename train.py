@@ -244,8 +244,11 @@ def training(cfg_dot_dic, dataset, opt, pipe, uw, checkpoint=None, sweep_train_f
                             (dataset.underwater_processing, uw, uw_additions, dataset.removal_using_monocular_depth), curr_bs_dict)
             if (iteration in cfg_dot_dic.GeneralParameters.save_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
-                print("\n[ITER {}] Saving was denied by the user".format(iteration))
-                #scene.save(iteration)
+                # BANCO: o save estava comentado no upstream, com a mensagem
+                # "Saving was denied by the user" a dar a impressao de uma
+                # decisao do utilizador. Sem modelo nao ha renderizacao nem
+                # inspeccao visual, e o banco precisa das duas.
+                scene.save(iteration)
         
             # Densification
             if iteration % opt.opacity_reset_interval == 0:# or (dataset.white_background and iteration == opt.densify_from_iter):
@@ -344,6 +347,15 @@ def prepare_output_end(cfg_dot_dic, minutes, seconds, sweep_train_flag=False):
     cfg_dot_dic['TrainingTime'] = {"minutes": minutes, "seconds": seconds}
     if not sweep_train_flag:
         write_dictionary_to_file(cfg_dot_dic, os.path.join(cfg_dot_dic.LoadingParameters.model_path,"cfg_args.json"))
+        # BANCADA (B7): o render.py / metrics.py de origem leem o `cfg_args`
+        # classico (repr de Namespace), que este train.py nunca escrevia -- so
+        # o .json. Escrevemos ambos, senao nenhum modelo treinado por aqui pode
+        # ser renderizado sem reconstruir o ficheiro a mao.
+        _ns = {}
+        for _g in ("LoadingParameters", "PipelineParameters", "UnderwaterParameters"):
+            _ns.update(dict(cfg_dot_dic.get(_g, {})))
+        with open(os.path.join(cfg_dot_dic.LoadingParameters.model_path, "cfg_args"), "w") as _f:
+            _f.write(repr(Namespace(**_ns)))
     if wandb.run is not None:
         wandb.config.update({"TrainingTime": {"minutes": minutes, "seconds": seconds}})
     # evaluate(cfg_dot_dic.LoadingParameters.model_path[2:])

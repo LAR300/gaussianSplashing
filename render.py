@@ -176,32 +176,56 @@ def create_video_set(scene, gaussians, pipe, bg, uw_flag, n_frames=10, save_str=
         create_video_from_images(image_directory, output_video_file, fps=10)
         
 
-def render_set(model_path, name, iteration, views, gaussians, pipeline, background):
-    render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
-    gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
-
-    makedirs(render_path, exist_ok=True)
-    makedirs(gts_path, exist_ok=True)
+def render_set(model_path, name, iteration, views, gaussians, pipeline, background, uw_flag="OFF"):
+    # BANCADA (B7): o render.py de origem chamava render() sem uw_flag, caindo no
+    # ramo "OFF" que desempacota 3 saidas. O rasterizador deste fork e o
+    # subaquatico e devolve sempre 5, logo esse ramo esta morto e o render.py
+    # original nao corre. Passamos o uw_flag do modelo e gravamos tambem o canal
+    # J (cena sem agua) e o retroespalhamento, que sao o analogo do rgb_clear /
+    # rgb_medium do WaterSplatting e o que a comparacao B6 x B7 precisa de ver.
+    base = os.path.join(model_path, name, "ours_{}".format(iteration))
+    paths = {k: os.path.join(base, k) for k in
+             ("renders", "gt", "rgb_clear", "rgb_medium", "depth")}
+    for d in paths.values():
+        makedirs(d, exist_ok=True)
 
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
-        rendering = render(view, gaussians, pipeline, background)["render"]
+        pkg = render(view, gaussians, pipeline, background, uw_flag=uw_flag)
+        # nome real da vista, nao o indice: so assim alinha com o B6 e com o GT
+        stem = os.path.splitext(os.path.basename(view.image_name))[0]
         gt = view.original_image[0:3, :, :]
-        torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
-        torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
+        torchvision.utils.save_image(pkg["render"], os.path.join(paths["renders"], stem + ".png"))
+        torchvision.utils.save_image(gt, os.path.join(paths["gt"], stem + ".png"))
+        if "rendered_J" in pkg:
+            torchvision.utils.save_image(pkg["rendered_J"].clamp(0, 1),
+                                         os.path.join(paths["rgb_clear"], stem + ".png"))
+        if "rendered_backscattering" in pkg:
+            torchvision.utils.save_image(pkg["rendered_backscattering"].clamp(0, 1),
+                                         os.path.join(paths["rgb_medium"], stem + ".png"))
+        if "rendered_depth" in pkg:
+            # apply_colormap espera (..., 1) e devolve (..., 3); com um squeeze
+            # a mais fica 2D e o permute rebenta. Mantemos o eixo do canal.
+            d = pkg["rendered_depth"].detach()
+            while d.dim() > 2:
+                d = d[0]
+            dc = apply_depth_colormap(d.unsqueeze(-1))          # (H, W, 3)
+            torchvision.utils.save_image(dc.permute(2, 0, 1).clamp(0, 1),
+                                         os.path.join(paths["depth"], stem + ".png"))
 
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool):
     with torch.no_grad():
-        gaussians = GaussianModel(dataset.sh_degree)
+        # BANCADA (B7): sem o uw_flag o modelo nasce sem os tensores do meio
+        gaussians = GaussianModel(dataset.sh_degree, dataset.underwater_processing)
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
 
         bg_color = [1,1,1] if dataset.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
         if not skip_train:
-             render_set(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipeline, background)
+             render_set(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), gaussians, pipeline, background, dataset.underwater_processing)
 
         if not skip_test:
-             render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipeline, background)
+             render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), gaussians, pipeline, background, dataset.underwater_processing)
 
 if __name__ == "__main__":
     # Set up command line argument parser

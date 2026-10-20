@@ -419,6 +419,26 @@ class GaussianModel:
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(path)
 
+        # BANCADA (B7): o PLY so leva os atributos 3DGS padrao -- a concatenacao
+        # com direct/binf/bs esta comentada acima, no original. O modelo do meio
+        # (6 tensores globais, nao por gaussiana) ficava perdido na gravacao e
+        # load_ply() falhava a reler o proprio ficheiro que acabara de escrever,
+        # que e porque o upstream tinha desligado o scene.save(). Gravamos esses
+        # tensores ao lado; o PLY mantem-se compativel com qualquer visualizador.
+        if self.uw_flag.startswith("HYB"):
+            torch.save({
+                "uw_flag": self.uw_flag,
+                "direct": self._direct.detach().cpu(),
+                "binf": self._binf.detach().cpu(),
+                "bs": self._bs.detach().cpu(),
+                "featuresbinf_dc": self._featuresbinf_dc.detach().cpu(),
+                "featuresbinf_rest": self._featuresbinf_rest.detach().cpu(),
+                "featuresbs_dc": self._featuresbs_dc.detach().cpu(),
+                "featuresbs_rest": self._featuresbs_rest.detach().cpu(),
+                "featuresdirect_dc": self._featuresdirect_dc.detach().cpu(),
+                "featuresdirect_rest": self._featuresdirect_rest.detach().cpu(),
+            }, os.path.join(os.path.dirname(path), "uw_params.pt"))
+
     def reset_opacity(self):
         opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
@@ -560,12 +580,25 @@ class GaussianModel:
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
         if self.uw_flag.startswith("HYB"):
             # start addition uw
-            direct = np.asarray(plydata.elements[0]["direct"])[..., np.newaxis]
-            binf = np.asarray(plydata.elements[0]["binf"])[..., np.newaxis]
-            bs = np.asarray(plydata.elements[0]["bs"])[..., np.newaxis]
-            self._direct = nn.Parameter(torch.tensor(direct, dtype=torch.float, device="cuda").requires_grad_(True))
-            self._binf = nn.Parameter(torch.tensor(binf, dtype=torch.float, device="cuda").requires_grad_(True))
-            self._bs = nn.Parameter(torch.tensor(bs, dtype=torch.float, device="cuda").requires_grad_(True))
+            # BANCADA (B7): vem do sidecar escrito por save_ply, nao do PLY --
+            # ver a nota la. Sem ele o modelo recarregado nao tem meio nenhum.
+            side = os.path.join(os.path.dirname(path), "uw_params.pt")
+            if not os.path.isfile(side):
+                raise FileNotFoundError(
+                    f"{side} em falta: este checkpoint foi gravado por uma versao "
+                    "que perdia o modelo do meio. Volte a treinar.")
+            uw = torch.load(side, map_location="cuda")
+            def _p(t):
+                return nn.Parameter(t.to("cuda").float().requires_grad_(True))
+            self._direct = _p(uw["direct"])
+            self._binf = _p(uw["binf"])
+            self._bs = _p(uw["bs"])
+            self._featuresbinf_dc = _p(uw["featuresbinf_dc"])
+            self._featuresbinf_rest = _p(uw["featuresbinf_rest"])
+            self._featuresbs_dc = _p(uw["featuresbs_dc"])
+            self._featuresbs_rest = _p(uw["featuresbs_rest"])
+            self._featuresdirect_dc = _p(uw["featuresdirect_dc"])
+            self._featuresdirect_rest = _p(uw["featuresdirect_rest"])
             # end addition uw
         self.active_sh_degree = self.max_sh_degree
 
